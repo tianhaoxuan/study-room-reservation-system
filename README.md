@@ -25,14 +25,14 @@
 
 ## 运行
 
-先在 MySQL 创建数据库并执行 `src/main/resources/schema.sql` 和 `src/main/resources/test-data.sql`。数据库连接通过环境变量配置，避免将本地密码提交到仓库：
+## 数据库初始化
 
-- `DB_URL`：数据库连接地址，默认连接本机 `zixishi` 数据库
-- `DB_USERNAME`：数据库用户名，默认 `root`
-- `DB_PASSWORD`：数据库密码，无默认值
+先在 MySQL 中创建空数据库：
 
-```bash
-mvn spring-boot:run
+```sql
+CREATE DATABASE zixishi
+    DEFAULT CHARACTER SET utf8mb4
+    DEFAULT COLLATE utf8mb4_unicode_ci;
 ```
 
 ## 测试
