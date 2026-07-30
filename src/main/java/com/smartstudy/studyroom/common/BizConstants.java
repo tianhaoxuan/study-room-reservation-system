@@ -19,9 +19,17 @@ public final class BizConstants {
     public static final int VIOLATION_NO_SHOW = 1;
     public static final int VIOLATION_TIMEOUT_CHECKIN = 2;
 
-    public static final String CONFIG_CHECKIN_LIMIT_MINUTES = "checkin_limit_minutes";
-    public static final String CONFIG_MAX_RESERVATION_PER_DAY = "max_reservation_per_day";
-    public static final String CONFIG_VIOLATION_LIMIT = "violation_limit";
+    public static final String CONFIG_CHECKIN_LIMIT_MINUTES =
+            "checkin_limit_minutes";
+
+    public static final String CONFIG_MAX_RESERVATION_PER_DAY =
+            "max_reservation_per_day";
+
+    public static final String CONFIG_VIOLATION_LIMIT =
+            "violation_limit";
+
+    public static final String CONFIG_RESERVATION_MAX_HOURS =
+            "reservation_max_hours";
 
     private BizConstants() {
     }
