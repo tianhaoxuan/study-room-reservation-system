@@ -1,11 +1,9 @@
 package com.smartstudy.studyroom.dto;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+
 import java.time.LocalDate;
-import java.time.LocalTime;
 
 public class CreateReservationRequest {
 
@@ -19,16 +17,11 @@ public class CreateReservationRequest {
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate reservationDate;
 
-    @NotBlank(message = "预约时段不能为空")
-    private String timeSlot;
+    @NotNull(message = "开始时段ID不能为空")
+    private Long startSlotId;
 
-    @NotNull(message = "开始时间不能为空")
-    @JsonFormat(pattern = "HH:mm:ss")
-    private LocalTime startTime;
-
-    @NotNull(message = "结束时间不能为空")
-    @JsonFormat(pattern = "HH:mm:ss")
-    private LocalTime endTime;
+    @NotNull(message = "结束时段ID不能为空")
+    private Long endSlotId;
 
     public Long getSeatId() {
         return seatId;
@@ -54,27 +47,19 @@ public class CreateReservationRequest {
         this.reservationDate = reservationDate;
     }
 
-    public String getTimeSlot() {
-        return timeSlot;
+    public Long getStartSlotId() {
+        return startSlotId;
     }
 
-    public void setTimeSlot(String timeSlot) {
-        this.timeSlot = timeSlot;
+    public void setStartSlotId(Long startSlotId) {
+        this.startSlotId = startSlotId;
     }
 
-    public LocalTime getStartTime() {
-        return startTime;
+    public Long getEndSlotId() {
+        return endSlotId;
     }
 
-    public void setStartTime(LocalTime startTime) {
-        this.startTime = startTime;
-    }
-
-    public LocalTime getEndTime() {
-        return endTime;
-    }
-
-    public void setEndTime(LocalTime endTime) {
-        this.endTime = endTime;
+    public void setEndSlotId(Long endSlotId) {
+        this.endSlotId = endSlotId;
     }
 }
