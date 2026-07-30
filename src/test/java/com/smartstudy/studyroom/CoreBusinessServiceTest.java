@@ -35,6 +35,7 @@ import com.smartstudy.studyroom.service.ViolationService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Collections;
@@ -403,8 +404,8 @@ class CoreBusinessServiceTest {
         assertThat(result).hasSize(1);
     }
 
-    @Test
-    void timeoutTaskMarksViolationBansAndReleasesSeat() {
+        @Test
+        void timeoutTaskMarksViolationBansAndReleasesSeat() {
         ReservationMapper reservationMapper =
                 mock(ReservationMapper.class);
         ViolationMapper violationMapper =
@@ -435,9 +436,14 @@ class CoreBusinessServiceTest {
                 1L
         );
 
-        reservation.setReservationDate(LocalDate.now());
+        LocalDateTime overdueStart =
+                LocalDateTime.now().minusMinutes(30).withNano(0);
+
+        reservation.setReservationDate(
+                overdueStart.toLocalDate()
+        );
         reservation.setStartTime(
-                LocalTime.now().minusMinutes(30).withNano(0)
+                overdueStart.toLocalTime()
         );
 
         when(configService.getIntConfig(
