@@ -3,7 +3,6 @@ package com.smartstudy.studyroom.service;
 import com.smartstudy.studyroom.common.BizConstants;
 import com.smartstudy.studyroom.common.StatusCode;
 import com.smartstudy.studyroom.dto.SeatImportResult;
-import com.smartstudy.studyroom.entity.Reservation;
 import com.smartstudy.studyroom.entity.Seat;
 import com.smartstudy.studyroom.exception.BusinessException;
 import com.smartstudy.studyroom.mapper.ReservationMapper;
@@ -18,52 +17,28 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
-
 import java.io.InputStream;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+
 
 @Service
 public class AdminSeatService {
 
     private final SeatMapper seatMapper;
     private final StudyRoomMapper studyRoomMapper;
-    private final ReservationMapper reservationMapper;
+
 
     public AdminSeatService(SeatMapper seatMapper, StudyRoomMapper studyRoomMapper, ReservationMapper reservationMapper) {
         this.seatMapper = seatMapper;
         this.studyRoomMapper = studyRoomMapper;
-        this.reservationMapper = reservationMapper;
+
     }
 
     public List<Seat> list(Long roomId) {
         return seatMapper.findByRoomId(roomId);
     }
 
-    public List<Seat> map(Long roomId, String reservationDate, String timeSlot) {
-        List<Seat> seats = list(roomId);
-        LocalDate date = LocalDate.parse(reservationDate, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-        List<Reservation> reservations = reservationMapper.findActiveByRoomAndSlot(roomId, date, timeSlot);
-        Map<Long, Integer> statusBySeat = new HashMap<Long, Integer>();
-        for (Reservation reservation : reservations) {
-            statusBySeat.put(reservation.getSeatId(),
-                    Integer.valueOf(BizConstants.RESERVATION_USING).equals(reservation.getStatus())
-                            ? BizConstants.SEAT_STATUS_USING : BizConstants.SEAT_STATUS_RESERVED);
-        }
-        for (Seat seat : seats) {
-            if (Integer.valueOf(BizConstants.SEAT_STATUS_REPAIR).equals(seat.getStatus())) {
-                continue;
-            }
-            Integer dynamicStatus = statusBySeat.get(seat.getId());
-            if (dynamicStatus != null) {
-                seat.setStatus(dynamicStatus);
-            }
-        }
-        return seats;
-    }
+
 
     @Transactional
     public void add(Seat seat) {

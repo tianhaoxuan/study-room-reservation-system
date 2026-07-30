@@ -213,19 +213,8 @@ public interface ReservationMapper {
             """)
     List<Reservation> findAllPending();
 
-    @Select("""
-            SELECT *
-            FROM reservation
-            WHERE room_id = #{roomId}
-              AND reservation_date = #{reservationDate}
-              AND time_slot = #{timeSlot}
-              AND status IN (1, 2)
-            """)
-    List<Reservation> findActiveByRoomAndSlot(
-            @Param("roomId") Long roomId,
-            @Param("reservationDate") LocalDate reservationDate,
-            @Param("timeSlot") String timeSlot
-    );
+
+
 
     /*
      * MyBatis动态SQL保留普通字符串拼接形式。
