@@ -84,6 +84,7 @@ public class CheckinService {
         if (changed == 0) {
             throw new BusinessException(StatusCode.PARAM_ERROR, "预约状态已变化，请刷新后重试");
         }
+        reservationService.releaseSlotOccupancies(reservationId);
         reservationService.releaseSeatIfNoOtherActiveReservation(reservation.getSeatId(), reservationId);
         roomStatsService.refreshRoomSeatStats(reservation.getRoomId());
     }
