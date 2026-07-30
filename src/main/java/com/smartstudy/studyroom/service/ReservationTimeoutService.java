@@ -5,6 +5,7 @@ import com.smartstudy.studyroom.entity.Reservation;
 import com.smartstudy.studyroom.entity.User;
 import com.smartstudy.studyroom.entity.Violation;
 import com.smartstudy.studyroom.mapper.ReservationMapper;
+import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
 import com.smartstudy.studyroom.mapper.SeatMapper;
 import com.smartstudy.studyroom.mapper.UserMapper;
 import com.smartstudy.studyroom.mapper.ViolationMapper;
@@ -18,6 +19,7 @@ import java.util.List;
 public class ReservationTimeoutService {
 
     private final ReservationMapper reservationMapper;
+    private final ReservationSlotOccupancyMapper reservationSlotOccupancyMapper;
     private final ViolationMapper violationMapper;
     private final UserMapper userMapper;
     private final SeatMapper seatMapper;
@@ -25,12 +27,14 @@ public class ReservationTimeoutService {
     private final RoomStatsService roomStatsService;
 
     public ReservationTimeoutService(ReservationMapper reservationMapper,
+                                     ReservationSlotOccupancyMapper reservationSlotOccupancyMapper,
                                      ViolationMapper violationMapper,
                                      UserMapper userMapper,
                                      SeatMapper seatMapper,
                                      ConfigService configService,
                                      RoomStatsService roomStatsService) {
         this.reservationMapper = reservationMapper;
+        this.reservationSlotOccupancyMapper = reservationSlotOccupancyMapper;
         this.violationMapper = violationMapper;
         this.userMapper = userMapper;
         this.seatMapper = seatMapper;
@@ -62,6 +66,9 @@ public class ReservationTimeoutService {
             if (changed == 0) {
                 continue;
             }
+            reservationSlotOccupancyMapper.deleteByReservationId(
+                    reservation.getId()
+            );
             Violation violation = new Violation();
             violation.setUserId(reservation.getUserId());
             violation.setReservationId(reservation.getId());

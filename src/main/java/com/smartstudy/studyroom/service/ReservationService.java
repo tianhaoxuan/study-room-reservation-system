@@ -8,13 +8,16 @@ import com.smartstudy.studyroom.dto.CreateReservationResponse;
 import com.smartstudy.studyroom.dto.MyReservationResponse;
 import com.smartstudy.studyroom.dto.ReservationSlotRange;
 import com.smartstudy.studyroom.entity.Reservation;
+import com.smartstudy.studyroom.entity.ReservationSlotOccupancy;
 import com.smartstudy.studyroom.entity.Seat;
 import com.smartstudy.studyroom.entity.StudyRoom;
 import com.smartstudy.studyroom.entity.User;
 import com.smartstudy.studyroom.exception.BusinessException;
 import com.smartstudy.studyroom.mapper.ReservationMapper;
+import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
 import com.smartstudy.studyroom.mapper.SeatMapper;
 import com.smartstudy.studyroom.mapper.StudyRoomMapper;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +30,7 @@ import java.util.List;
 public class ReservationService {
 
     private final ReservationMapper reservationMapper;
+    private final ReservationSlotOccupancyMapper reservationSlotOccupancyMapper;
     private final SeatMapper seatMapper;
     private final StudyRoomMapper studyRoomMapper;
     private final UserService userService;
@@ -36,6 +40,7 @@ public class ReservationService {
 
     public ReservationService(
             ReservationMapper reservationMapper,
+            ReservationSlotOccupancyMapper reservationSlotOccupancyMapper,
             SeatMapper seatMapper,
             StudyRoomMapper studyRoomMapper,
             UserService userService,
@@ -44,6 +49,7 @@ public class ReservationService {
             ReservationSlotService reservationSlotService) {
 
         this.reservationMapper = reservationMapper;
+        this.reservationSlotOccupancyMapper = reservationSlotOccupancyMapper;
         this.seatMapper = seatMapper;
         this.studyRoomMapper = studyRoomMapper;
         this.userService = userService;
@@ -201,6 +207,11 @@ public class ReservationService {
         );
 
         reservationMapper.insert(reservation);
+        createSlotOccupancies(
+                reservation,
+                userId,
+                slotRange.slotIds()
+        );
 
         // 暂时保留原有座位物理状态逻辑，后续再与时段占用拆分。
         seatMapper.updateStatus(
@@ -248,6 +259,8 @@ public class ReservationService {
                     "预约状态已经变化，请刷新后重试"
             );
         }
+
+        releaseSlotOccupancies(reservationId);
 
         releaseSeatIfNoActiveReservation(
                 reservation.getSeatId()
@@ -339,6 +352,50 @@ public class ReservationService {
             seatMapper.updateStatus(
                     seatId,
                     BizConstants.SEAT_STATUS_FREE
+            );
+        }
+    }
+
+    public void releaseSlotOccupancies(Long reservationId) {
+        reservationSlotOccupancyMapper.deleteByReservationId(
+                reservationId
+        );
+    }
+
+    private void createSlotOccupancies(
+            Reservation reservation,
+            Long userId,
+            List<Long> slotIds) {
+
+        List<ReservationSlotOccupancy> occupancies =
+                slotIds.stream()
+                        .map(slotId -> {
+                            ReservationSlotOccupancy occupancy =
+                                    new ReservationSlotOccupancy();
+                            occupancy.setReservationId(
+                                    reservation.getId()
+                            );
+                            occupancy.setUserId(userId);
+                            occupancy.setSeatId(
+                                    reservation.getSeatId()
+                            );
+                            occupancy.setRoomId(
+                                    reservation.getRoomId()
+                            );
+                            occupancy.setReservationDate(
+                                    reservation.getReservationDate()
+                            );
+                            occupancy.setSlotId(slotId);
+                            return occupancy;
+                        })
+                        .toList();
+
+        try {
+            reservationSlotOccupancyMapper.batchInsert(occupancies);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException(
+                    StatusCode.PARAM_ERROR,
+                    "所选座位或时间段已被占用，请刷新后重试"
             );
         }
     }

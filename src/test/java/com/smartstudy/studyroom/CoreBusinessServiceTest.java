@@ -13,15 +13,18 @@ import com.smartstudy.studyroom.dto.UserInfoResponse;
 import com.smartstudy.studyroom.dto.ViolationResponse;
 import com.smartstudy.studyroom.dto.WxLoginRequest;
 import com.smartstudy.studyroom.entity.Reservation;
+import com.smartstudy.studyroom.entity.ReservationSlotOccupancy;
 import com.smartstudy.studyroom.entity.Seat;
 import com.smartstudy.studyroom.entity.StudyRoom;
 import com.smartstudy.studyroom.entity.User;
 import com.smartstudy.studyroom.entity.Violation;
 import com.smartstudy.studyroom.mapper.ReservationMapper;
+import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
 import com.smartstudy.studyroom.mapper.SeatMapper;
 import com.smartstudy.studyroom.mapper.StudyRoomMapper;
 import com.smartstudy.studyroom.mapper.UserMapper;
 import com.smartstudy.studyroom.mapper.ViolationMapper;
+import com.smartstudy.studyroom.service.AdminReservationService;
 import com.smartstudy.studyroom.service.AuthService;
 import com.smartstudy.studyroom.service.CheckinService;
 import com.smartstudy.studyroom.service.ConfigService;
@@ -206,6 +209,33 @@ class CoreBusinessServiceTest {
         assertThat(inserted.getEndTime())
                 .isEqualTo(LocalTime.of(10, 0));
 
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ReservationSlotOccupancy>> occupancyCaptor =
+                ArgumentCaptor.forClass(List.class);
+
+        verify(fixture.reservationSlotOccupancyMapper)
+                .batchInsert(occupancyCaptor.capture());
+
+        List<ReservationSlotOccupancy> occupancies =
+                occupancyCaptor.getValue();
+
+        assertThat(occupancies)
+                .extracting(ReservationSlotOccupancy::getSlotId)
+                .containsExactly(2L, 3L, 4L, 5L);
+        assertThat(occupancies)
+                .allSatisfy(occupancy -> {
+                    assertThat(occupancy.getReservationId())
+                            .isEqualTo(1001L);
+                    assertThat(occupancy.getUserId())
+                            .isEqualTo(1L);
+                    assertThat(occupancy.getSeatId())
+                            .isEqualTo(1L);
+                    assertThat(occupancy.getRoomId())
+                            .isEqualTo(1L);
+                    assertThat(occupancy.getReservationDate())
+                            .isEqualTo(request.getReservationDate());
+                });
+
         verify(fixture.seatMapper).updateStatus(
                 1L,
                 BizConstants.SEAT_STATUS_RESERVED
@@ -240,10 +270,57 @@ class CoreBusinessServiceTest {
                 1001L
         );
 
+        verify(fixture.reservationSlotOccupancyMapper)
+                .deleteByReservationId(1001L);
+
         verify(fixture.seatMapper).updateStatus(
                 1L,
                 BizConstants.SEAT_STATUS_FREE
         );
+    }
+
+    @Test
+    void adminCancelReservationReleasesSlotOccupancies() {
+        ReservationFixture fixture = new ReservationFixture();
+        AdminReservationService adminReservationService =
+                new AdminReservationService(
+                        fixture.reservationMapper,
+                        fixture.reservationSlotOccupancyMapper,
+                        fixture.seatMapper,
+                        fixture.roomStatsService
+                );
+
+        Reservation reservation = pendingReservation(
+                1001L,
+                1L,
+                1L,
+                1L
+        );
+
+        when(fixture.reservationMapper.findById(1001L))
+                .thenReturn(reservation);
+        when(fixture.reservationMapper.updateActiveStatus(
+                1001L,
+                BizConstants.RESERVATION_CANCELED
+        )).thenReturn(1);
+        when(fixture.reservationMapper.countActiveBySeatExclude(
+                1L,
+                1001L
+        )).thenReturn(0);
+
+        adminReservationService.cancel(
+                1001L,
+                "maintenance"
+        );
+
+        verify(fixture.reservationSlotOccupancyMapper)
+                .deleteByReservationId(1001L);
+        verify(fixture.seatMapper).updateStatus(
+                1L,
+                BizConstants.SEAT_STATUS_FREE
+        );
+        verify(fixture.roomStatsService)
+                .refreshRoomSeatStats(1L);
     }
 
     @Test
@@ -377,6 +454,9 @@ class CoreBusinessServiceTest {
 
         checkinService.leave(1L, 1001L);
 
+        verify(fixture.reservationSlotOccupancyMapper)
+                .deleteByReservationId(1001L);
+
         verify(fixture.seatMapper).updateStatus(
                 1L,
                 BizConstants.SEAT_STATUS_FREE
@@ -408,6 +488,8 @@ class CoreBusinessServiceTest {
         void timeoutTaskMarksViolationBansAndReleasesSeat() {
         ReservationMapper reservationMapper =
                 mock(ReservationMapper.class);
+        ReservationSlotOccupancyMapper reservationSlotOccupancyMapper =
+                mock(ReservationSlotOccupancyMapper.class);
         ViolationMapper violationMapper =
                 mock(ViolationMapper.class);
         UserMapper userMapper =
@@ -422,6 +504,7 @@ class CoreBusinessServiceTest {
         ReservationTimeoutService service =
                 new ReservationTimeoutService(
                         reservationMapper,
+                        reservationSlotOccupancyMapper,
                         violationMapper,
                         userMapper,
                         seatMapper,
@@ -481,6 +564,8 @@ class CoreBusinessServiceTest {
 
         verify(violationMapper).insert(any(Violation.class));
         verify(userMapper).banUser(1L);
+        verify(reservationSlotOccupancyMapper)
+                .deleteByReservationId(1001L);
 
         verify(seatMapper).updateStatus(
                 2L,
@@ -569,6 +654,10 @@ class CoreBusinessServiceTest {
         private final ReservationMapper reservationMapper =
                 mock(ReservationMapper.class);
 
+        private final ReservationSlotOccupancyMapper
+                reservationSlotOccupancyMapper =
+                mock(ReservationSlotOccupancyMapper.class);
+
         private final SeatMapper seatMapper =
                 mock(SeatMapper.class);
 
@@ -593,6 +682,7 @@ class CoreBusinessServiceTest {
         private final ReservationService reservationService =
                 new ReservationService(
                         reservationMapper,
+                        reservationSlotOccupancyMapper,
                         seatMapper,
                         studyRoomMapper,
                         userService,
