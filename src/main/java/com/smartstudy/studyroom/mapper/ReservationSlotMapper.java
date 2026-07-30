@@ -24,4 +24,26 @@ public interface ReservationSlotMapper {
             @Param("openTime") LocalTime openTime,
             @Param("closeTime") LocalTime closeTime
     );
+
+    @Select("""
+            SELECT id, slot_code, slot_name, start_time, end_time,
+                   enabled, display_order, create_time, update_time
+            FROM reservation_slot
+            WHERE id = #{id}
+              AND enabled = 1
+            """)
+    ReservationSlot findEnabledById(@Param("id") Long id);
+
+    @Select("""
+            SELECT id, slot_code, slot_name, start_time, end_time,
+                   enabled, display_order, create_time, update_time
+            FROM reservation_slot
+            WHERE enabled = 1
+              AND display_order BETWEEN #{startOrder} AND #{endOrder}
+            ORDER BY display_order
+            """)
+    List<ReservationSlot> findEnabledByDisplayOrderRange(
+            @Param("startOrder") Integer startOrder,
+            @Param("endOrder") Integer endOrder
+    );
 }
