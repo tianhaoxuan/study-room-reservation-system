@@ -30,7 +30,9 @@ public class ViolationController {
      * 核心逻辑说明：根据 token 获取当前用户ID，只返回本人 violation 表记录。
      */
     @GetMapping("/my")
-    public ApiResponse<List<ViolationResponse>> my(@RequestHeader("Authorization") String authorization) {
+    public ApiResponse<List<ViolationResponse>> my(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+
         Long userId = tokenService.requireUserId(authorization);
         return ApiResponse.success(violationService.findMyViolations(userId));
     }

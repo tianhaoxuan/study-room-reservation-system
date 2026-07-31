@@ -35,7 +35,8 @@ public class CheckinController {
      * 核心逻辑说明：校验本人预约、待签到状态、二维码座位一致性和签到宽容时间。
      */
     @PostMapping("/sign")
-    public ApiResponse<StatusResponse> sign(@RequestHeader("Authorization") String authorization,
+    public ApiResponse<StatusResponse> sign(
+                                            @RequestHeader(value = "Authorization", required = false) String authorization,
                                             @Valid @RequestBody CheckinSignRequest request) {
         Long userId = tokenService.requireUserId(authorization);
         return ApiResponse.success("签到成功",
@@ -49,7 +50,8 @@ public class CheckinController {
      * 核心逻辑说明：只能退本人使用中的预约，成功后将预约置为已完成并释放座位。
      */
     @PostMapping("/leave")
-    public ApiResponse<Void> leave(@RequestHeader("Authorization") String authorization,
+    public ApiResponse<Void> leave(
+                                   @RequestHeader(value = "Authorization", required = false) String authorization,
                                    @Valid @RequestBody CancelReservationRequest request) {
         Long userId = tokenService.requireUserId(authorization);
         checkinService.leave(userId, request.getReservationId());

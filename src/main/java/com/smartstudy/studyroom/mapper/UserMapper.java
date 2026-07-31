@@ -20,8 +20,8 @@ public interface UserMapper {
     @Select("SELECT * FROM `user` WHERE student_no = #{studentNo}")
     User findByStudentNo(@Param("studentNo") String studentNo);
 
-    @Insert("INSERT INTO `user`(openid, student_no, real_name, nickname, avatar_url, credit_score, violation_count, status) " +
-            "VALUES(#{openid}, #{studentNo}, #{realName}, #{nickname}, #{avatarUrl}, 100, 0, 1)")
+    @Insert("INSERT INTO `user`(openid, student_no, real_name, nickname, avatar_url, credit_score, violation_count, status, role) " +
+            "VALUES(#{openid}, #{studentNo}, #{realName}, #{nickname}, #{avatarUrl}, 100, 0, 1, #{role})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(User user);
 

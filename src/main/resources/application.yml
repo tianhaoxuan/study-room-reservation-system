@@ -26,3 +26,8 @@ mybatis:
 logging:
   level:
     com.smartstudy.studyroom.mapper: debug
+
+studyroom:
+  auth:
+    token-secret: ${STUDYROOM_TOKEN_SECRET:dev-only-change-me-study-room-token-secret}
+    token-ttl-seconds: ${STUDYROOM_TOKEN_TTL_SECONDS:86400}
