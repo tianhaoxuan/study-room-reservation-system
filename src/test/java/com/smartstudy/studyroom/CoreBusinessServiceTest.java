@@ -3,6 +3,7 @@ package com.smartstudy.studyroom;
 import com.smartstudy.studyroom.common.BizConstants;
 import com.smartstudy.studyroom.common.PageResult;
 import com.smartstudy.studyroom.common.ReservationStatus;
+import com.smartstudy.studyroom.common.UserRole;
 import com.smartstudy.studyroom.dto.CheckinSignRequest;
 import com.smartstudy.studyroom.dto.CreateReservationRequest;
 import com.smartstudy.studyroom.dto.CreateReservationResponse;
@@ -59,7 +60,11 @@ class CoreBusinessServiceTest {
     @Test
     void wxLoginCreatesUserAndReturnsToken() {
         UserMapper userMapper = mock(UserMapper.class);
-        TokenService tokenService = new TokenService();
+        TokenService tokenService = new TokenService(
+                "test-secret",
+                3600,
+                java.time.Clock.systemUTC()
+        );
         AuthService authService = new AuthService(
                 userMapper,
                 tokenService
@@ -89,7 +94,11 @@ class CoreBusinessServiceTest {
         LoginResponse response = authService.login(request);
 
         assertThat(response.getToken())
-                .isEqualTo("user-10");
+                .startsWith("st.");
+        assertThat(tokenService.requireUserId("Bearer " + response.getToken()))
+                .isEqualTo(10L);
+        assertThat(response.getRole())
+                .isEqualTo(UserRole.USER.name());
         assertThat(response.getStudentNo())
                 .isEqualTo("20240001");
     }

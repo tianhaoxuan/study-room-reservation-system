@@ -28,7 +28,9 @@ public class UserController {
      * 核心逻辑说明：从 token 中解析 userId，再查询 user 表返回个人中心展示字段。
      */
     @GetMapping("/info")
-    public ApiResponse<UserInfoResponse> info(@RequestHeader("Authorization") String authorization) {
+    public ApiResponse<UserInfoResponse> info(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+
         Long userId = tokenService.requireUserId(authorization);
         return ApiResponse.success(userService.getUserInfo(userId));
     }

@@ -1,5 +1,6 @@
 package com.smartstudy.studyroom.service;
 
+import com.smartstudy.studyroom.common.UserRole;
 import com.smartstudy.studyroom.dto.LoginResponse;
 import com.smartstudy.studyroom.dto.WxLoginRequest;
 import com.smartstudy.studyroom.entity.User;
@@ -38,6 +39,7 @@ public class AuthService {
             user.setRealName(request.getRealName());
             user.setNickname(request.getNickname());
             user.setAvatarUrl(request.getAvatarUrl());
+            user.setRole(UserRole.USER.name());
             userMapper.insert(user);
         } else {
             user.setOpenid(openid);
@@ -48,8 +50,16 @@ public class AuthService {
             userMapper.updateLoginInfo(user);
             user = userMapper.findById(user.getId());
         }
-        return new LoginResponse(tokenService.createToken(user.getId()), user.getId(),
-                user.getStudentNo(), user.getRealName(), user.getStatus());
+
+        String role = UserRole.from(user.getRole()).name();
+        return new LoginResponse(
+                tokenService.createToken(user.getId(), role),
+                user.getId(),
+                user.getStudentNo(),
+                user.getRealName(),
+                user.getStatus(),
+                role
+        );
     }
 
     private String mockExchangeOpenid(String code) {

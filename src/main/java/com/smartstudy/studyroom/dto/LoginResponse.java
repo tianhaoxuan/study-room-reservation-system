@@ -7,16 +7,25 @@ public class LoginResponse {
     private String studentNo;
     private String realName;
     private Integer status;
+    private String role;
 
     public LoginResponse() {
     }
 
-    public LoginResponse(String token, Long userId, String studentNo, String realName, Integer status) {
+    public LoginResponse(
+            String token,
+            Long userId,
+            String studentNo,
+            String realName,
+            Integer status,
+            String role) {
+
         this.token = token;
         this.userId = userId;
         this.studentNo = studentNo;
         this.realName = realName;
         this.status = status;
+        this.role = role;
     }
 
     public String getToken() {
@@ -57,5 +66,13 @@ public class LoginResponse {
 
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
     }
 }

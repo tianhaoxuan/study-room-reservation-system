@@ -13,6 +13,7 @@ public class User {
     private Integer creditScore;
     private Integer violationCount;
     private Integer status;
+    private String role;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 
@@ -86,6 +87,14 @@ public class User {
 
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
     }
 
     public LocalDateTime getCreateTime() {

@@ -39,7 +39,8 @@ public class ReservationController {
      * 核心逻辑说明：业务层完成账号状态、座位维修、座位冲突、用户冲突和每日限约校验。
      */
     @PostMapping("/create")
-    public ApiResponse<CreateReservationResponse> create(@RequestHeader("Authorization") String authorization,
+    public ApiResponse<CreateReservationResponse> create(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
                                                          @Valid @RequestBody CreateReservationRequest request) {
         Long userId = tokenService.requireUserId(authorization);
         return ApiResponse.success("预约成功", reservationService.createReservation(userId, request));
@@ -52,7 +53,8 @@ public class ReservationController {
      * 核心逻辑说明：只能取消本人待签到预约，取消成功后释放座位并刷新房间统计。
      */
     @PostMapping("/cancel")
-    public ApiResponse<Void> cancel(@RequestHeader("Authorization") String authorization,
+    public ApiResponse<Void> cancel(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
                                     @Valid @RequestBody CancelReservationRequest request) {
         Long userId = tokenService.requireUserId(authorization);
         reservationService.cancelReservation(userId, request.getReservationId());
@@ -66,7 +68,8 @@ public class ReservationController {
      * 核心逻辑说明：按当前用户分页查询预约记录，可按预约状态筛选。
      */
     @GetMapping("/my")
-    public ApiResponse<PageResult<MyReservationResponse>> my(@RequestHeader("Authorization") String authorization,
+    public ApiResponse<PageResult<MyReservationResponse>> my(
+                                                             @RequestHeader(value = "Authorization", required = false) String authorization,
                                                              @RequestParam(value = "status", required = false) Integer status,
                                                              @RequestParam(value = "pageNum", required = false) Integer pageNum,
                                                              @RequestParam(value = "pageSize", required = false) Integer pageSize) {
