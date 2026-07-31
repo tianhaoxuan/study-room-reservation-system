@@ -1,13 +1,11 @@
 package com.smartstudy.studyroom.service;
 
 import com.smartstudy.studyroom.common.PageResult;
-import com.smartstudy.studyroom.common.ReservationStatus;
 import com.smartstudy.studyroom.common.StatusCode;
 import com.smartstudy.studyroom.dto.AdminReservationResponse;
 import com.smartstudy.studyroom.entity.Reservation;
 import com.smartstudy.studyroom.exception.BusinessException;
 import com.smartstudy.studyroom.mapper.ReservationMapper;
-import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,17 +15,14 @@ import java.util.List;
 public class AdminReservationService {
 
     private final ReservationMapper reservationMapper;
-    private final ReservationSlotOccupancyMapper reservationSlotOccupancyMapper;
-    private final RoomStatsService roomStatsService;
+    private final ReservationLifecycleService reservationLifecycleService;
 
     public AdminReservationService(
             ReservationMapper reservationMapper,
-            ReservationSlotOccupancyMapper reservationSlotOccupancyMapper,
-            RoomStatsService roomStatsService) {
+            ReservationLifecycleService reservationLifecycleService) {
+
         this.reservationMapper = reservationMapper;
-        this.reservationSlotOccupancyMapper =
-                reservationSlotOccupancyMapper;
-        this.roomStatsService = roomStatsService;
+        this.reservationLifecycleService = reservationLifecycleService;
     }
 
     public PageResult<AdminReservationResponse> list(
@@ -72,36 +67,10 @@ public class AdminReservationService {
         if (reservation == null) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "预约记录不存在"
+                    "\u9884\u7ea6\u8bb0\u5f55\u4e0d\u5b58\u5728"
             );
         }
 
-        ReservationStatus currentStatus =
-                ReservationStatus.fromCode(reservation.getStatus());
-        if (!currentStatus.canBeCancelledByAdmin()) {
-            throw new BusinessException(
-                    StatusCode.PARAM_ERROR,
-                    "该预约当前状态无法取消"
-            );
-        }
-
-        int changed = reservationMapper.updateStatusIfCurrentIn(
-                reservationId,
-                ReservationStatus.adminCancellableCodes(),
-                ReservationStatus.CANCELLED.code()
-        );
-        if (changed == 0) {
-            throw new BusinessException(
-                    StatusCode.PARAM_ERROR,
-                    "预约状态已变化，请刷新后重试"
-            );
-        }
-
-        reservationSlotOccupancyMapper.deleteByReservationId(
-                reservationId
-        );
-        roomStatsService.refreshRoomSeatStats(
-                reservation.getRoomId()
-        );
+        reservationLifecycleService.cancelByAdmin(reservation);
     }
 }
