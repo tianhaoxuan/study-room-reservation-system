@@ -9,6 +9,11 @@ spring:
     password: ${DB_PASSWORD:}
   jackson:
     time-zone: Asia/Shanghai
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
   sql:
     init:
       mode: never
@@ -31,3 +36,7 @@ studyroom:
   auth:
     token-secret: ${STUDYROOM_TOKEN_SECRET:dev-only-change-me-study-room-token-secret}
     token-ttl-seconds: ${STUDYROOM_TOKEN_TTL_SECONDS:86400}
+  rabbitmq:
+    checkin-timeout:
+      enabled: ${STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_ENABLED:false}
+      listener-auto-startup: ${STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_LISTENER_AUTO_STARTUP:false}

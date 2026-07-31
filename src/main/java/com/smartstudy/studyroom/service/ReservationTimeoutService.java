@@ -65,31 +65,65 @@ public class ReservationTimeoutService {
                 continue;
             }
 
-            if (!reservationLifecycleService.violateNoShow(reservation)) {
-                continue;
+            if (handleTimeoutReservation(reservation, violationLimit)) {
+                handled++;
             }
-
-            Violation violation = new Violation();
-            violation.setUserId(reservation.getUserId());
-            violation.setReservationId(reservation.getId());
-            violation.setViolationType(
-                    BizConstants.VIOLATION_TIMEOUT_CHECKIN
-            );
-            violation.setReason("\u8d85\u65f6\u672a\u7b7e\u5230");
-            violation.setHandleResult("\u8bb0\u5f55\u8fdd\u89c4\u4e00\u6b21");
-            violationMapper.insert(violation);
-
-            userMapper.increaseViolation(reservation.getUserId());
-            User user = userMapper.findById(reservation.getUserId());
-            if (user != null
-                    && user.getViolationCount() != null
-                    && user.getViolationCount() >= violationLimit) {
-                userMapper.banUser(reservation.getUserId());
-            }
-
-            handled++;
         }
 
         return handled;
+    }
+
+    @Transactional
+    public boolean handleCheckinTimeoutMessage(
+            Long reservationId,
+            LocalDateTime deadlineAt) {
+
+        Reservation reservation = reservationMapper.findById(reservationId);
+        if (reservation == null) {
+            return false;
+        }
+        if (reservation.getStatus() == null
+                || reservation.getStatus()
+                != ReservationStatus.PENDING_CHECKIN.code()) {
+            return false;
+        }
+        if (!LocalDateTime.now().isAfter(deadlineAt)) {
+            return false;
+        }
+
+        int violationLimit = configService.getIntConfig(
+                BizConstants.CONFIG_VIOLATION_LIMIT,
+                3
+        );
+        return handleTimeoutReservation(reservation, violationLimit);
+    }
+
+    private boolean handleTimeoutReservation(
+            Reservation reservation,
+            int violationLimit) {
+
+        if (!reservationLifecycleService.violateNoShow(reservation)) {
+            return false;
+        }
+
+        Violation violation = new Violation();
+        violation.setUserId(reservation.getUserId());
+        violation.setReservationId(reservation.getId());
+        violation.setViolationType(
+                BizConstants.VIOLATION_TIMEOUT_CHECKIN
+        );
+        violation.setReason("\u8d85\u65f6\u672a\u7b7e\u5230");
+        violation.setHandleResult("\u8bb0\u5f55\u8fdd\u89c4\u4e00\u6b21");
+        violationMapper.insert(violation);
+
+        userMapper.increaseViolation(reservation.getUserId());
+        User user = userMapper.findById(reservation.getUserId());
+        if (user != null
+                && user.getViolationCount() != null
+                && user.getViolationCount() >= violationLimit) {
+            userMapper.banUser(reservation.getUserId());
+        }
+
+        return true;
     }
 }
