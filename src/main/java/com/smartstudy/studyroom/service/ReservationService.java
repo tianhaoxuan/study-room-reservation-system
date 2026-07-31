@@ -213,12 +213,6 @@ public class ReservationService {
                 slotRange.slotIds()
         );
 
-        // 暂时保留原有座位物理状态逻辑，后续再与时段占用拆分。
-        seatMapper.updateStatus(
-                request.getSeatId(),
-                BizConstants.SEAT_STATUS_RESERVED
-        );
-
         roomStatsService.refreshRoomSeatStats(
                 request.getRoomId()
         );
@@ -261,10 +255,6 @@ public class ReservationService {
         }
 
         releaseSlotOccupancies(reservationId);
-
-        releaseSeatIfNoActiveReservation(
-                reservation.getSeatId()
-        );
 
         roomStatsService.refreshRoomSeatStats(
                 reservation.getRoomId()
@@ -330,30 +320,6 @@ public class ReservationService {
         }
 
         return reservation;
-    }
-
-    public void releaseSeatIfNoActiveReservation(Long seatId) {
-        if (reservationMapper.countActiveBySeat(seatId) == 0) {
-            seatMapper.updateStatus(
-                    seatId,
-                    BizConstants.SEAT_STATUS_FREE
-            );
-        }
-    }
-
-    public void releaseSeatIfNoOtherActiveReservation(
-            Long seatId,
-            Long reservationId) {
-
-        if (reservationMapper.countActiveBySeatExclude(
-                seatId,
-                reservationId
-        ) == 0) {
-            seatMapper.updateStatus(
-                    seatId,
-                    BizConstants.SEAT_STATUS_FREE
-            );
-        }
     }
 
     public void releaseSlotOccupancies(Long reservationId) {

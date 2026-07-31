@@ -8,7 +8,6 @@ import com.smartstudy.studyroom.entity.Reservation;
 import com.smartstudy.studyroom.exception.BusinessException;
 import com.smartstudy.studyroom.mapper.ReservationMapper;
 import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
-import com.smartstudy.studyroom.mapper.SeatMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,16 +18,13 @@ public class AdminReservationService {
 
     private final ReservationMapper reservationMapper;
     private final ReservationSlotOccupancyMapper reservationSlotOccupancyMapper;
-    private final SeatMapper seatMapper;
     private final RoomStatsService roomStatsService;
 
     public AdminReservationService(ReservationMapper reservationMapper,
                                    ReservationSlotOccupancyMapper reservationSlotOccupancyMapper,
-                                   SeatMapper seatMapper,
                                    RoomStatsService roomStatsService) {
         this.reservationMapper = reservationMapper;
         this.reservationSlotOccupancyMapper = reservationSlotOccupancyMapper;
-        this.seatMapper = seatMapper;
         this.roomStatsService = roomStatsService;
     }
 
@@ -63,9 +59,6 @@ public class AdminReservationService {
             throw new BusinessException(StatusCode.PARAM_ERROR, "预约状态已变化，请刷新后重试");
         }
         reservationSlotOccupancyMapper.deleteByReservationId(reservationId);
-        if (reservationMapper.countActiveBySeatExclude(reservation.getSeatId(), reservationId) == 0) {
-            seatMapper.updateStatus(reservation.getSeatId(), BizConstants.SEAT_STATUS_FREE);
-        }
         roomStatsService.refreshRoomSeatStats(reservation.getRoomId());
     }
 }

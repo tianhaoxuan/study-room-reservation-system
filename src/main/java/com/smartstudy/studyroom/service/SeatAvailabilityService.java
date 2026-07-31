@@ -85,11 +85,10 @@ public class SeatAvailabilityService {
         List<Seat> seats = seatMapper.findByRoomId(roomId);
 
         List<Reservation> activeReservations =
-                seatAvailabilityMapper.findActiveReservations(
+                seatAvailabilityMapper.findActiveReservationsBySlotIds(
                         roomId,
                         reservationDate,
-                        slotRange.startTime(),
-                        slotRange.endTime()
+                        slotRange.slotIds()
                 );
 
         /*

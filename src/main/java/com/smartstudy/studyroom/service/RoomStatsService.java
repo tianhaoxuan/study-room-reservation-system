@@ -1,7 +1,7 @@
 package com.smartstudy.studyroom.service;
 
 import com.smartstudy.studyroom.entity.StudyRoom;
-import com.smartstudy.studyroom.mapper.SeatMapper;
+import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
 import com.smartstudy.studyroom.mapper.StudyRoomMapper;
 import org.springframework.stereotype.Service;
 
@@ -11,11 +11,14 @@ import java.math.RoundingMode;
 @Service
 public class RoomStatsService {
 
-    private final SeatMapper seatMapper;
+    private final ReservationSlotOccupancyMapper reservationSlotOccupancyMapper;
     private final StudyRoomMapper studyRoomMapper;
 
-    public RoomStatsService(SeatMapper seatMapper, StudyRoomMapper studyRoomMapper) {
-        this.seatMapper = seatMapper;
+    public RoomStatsService(
+            ReservationSlotOccupancyMapper reservationSlotOccupancyMapper,
+            StudyRoomMapper studyRoomMapper) {
+        this.reservationSlotOccupancyMapper =
+                reservationSlotOccupancyMapper;
         this.studyRoomMapper = studyRoomMapper;
     }
 
@@ -30,7 +33,9 @@ public class RoomStatsService {
         if (room == null) {
             return;
         }
-        int reservedSeats = seatMapper.countReservedOrUsingByRoomId(roomId);
+        int reservedSeats =
+                reservationSlotOccupancyMapper
+                        .countDistinctActiveSeatsByRoomId(roomId);
         int totalSeats = room.getTotalSeats() == null ? 0 : room.getTotalSeats();
         BigDecimal occupancyRate = BigDecimal.ZERO;
         if (totalSeats > 0) {

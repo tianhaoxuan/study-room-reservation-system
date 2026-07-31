@@ -6,7 +6,6 @@ import com.smartstudy.studyroom.entity.User;
 import com.smartstudy.studyroom.entity.Violation;
 import com.smartstudy.studyroom.mapper.ReservationMapper;
 import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
-import com.smartstudy.studyroom.mapper.SeatMapper;
 import com.smartstudy.studyroom.mapper.UserMapper;
 import com.smartstudy.studyroom.mapper.ViolationMapper;
 import org.springframework.stereotype.Service;
@@ -22,7 +21,6 @@ public class ReservationTimeoutService {
     private final ReservationSlotOccupancyMapper reservationSlotOccupancyMapper;
     private final ViolationMapper violationMapper;
     private final UserMapper userMapper;
-    private final SeatMapper seatMapper;
     private final ConfigService configService;
     private final RoomStatsService roomStatsService;
 
@@ -30,14 +28,12 @@ public class ReservationTimeoutService {
                                      ReservationSlotOccupancyMapper reservationSlotOccupancyMapper,
                                      ViolationMapper violationMapper,
                                      UserMapper userMapper,
-                                     SeatMapper seatMapper,
                                      ConfigService configService,
                                      RoomStatsService roomStatsService) {
         this.reservationMapper = reservationMapper;
         this.reservationSlotOccupancyMapper = reservationSlotOccupancyMapper;
         this.violationMapper = violationMapper;
         this.userMapper = userMapper;
-        this.seatMapper = seatMapper;
         this.configService = configService;
         this.roomStatsService = roomStatsService;
     }
@@ -80,9 +76,6 @@ public class ReservationTimeoutService {
             User user = userMapper.findById(reservation.getUserId());
             if (user != null && user.getViolationCount() != null && user.getViolationCount() >= violationLimit) {
                 userMapper.banUser(reservation.getUserId());
-            }
-            if (reservationMapper.countActiveBySeatExclude(reservation.getSeatId(), reservation.getId()) == 0) {
-                seatMapper.updateStatus(reservation.getSeatId(), BizConstants.SEAT_STATUS_FREE);
             }
             roomStatsService.refreshRoomSeatStats(reservation.getRoomId());
             handled++;

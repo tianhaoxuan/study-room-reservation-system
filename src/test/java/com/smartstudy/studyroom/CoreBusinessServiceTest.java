@@ -236,14 +236,10 @@ class CoreBusinessServiceTest {
                             .isEqualTo(request.getReservationDate());
                 });
 
-        verify(fixture.seatMapper).updateStatus(
-                1L,
-                BizConstants.SEAT_STATUS_RESERVED
-        );
     }
 
     @Test
-    void cancelReservationMarksCanceledAndReleasesSeat() {
+    void cancelReservationMarksCanceledAndReleasesSlotOccupancies() {
         ReservationFixture fixture = new ReservationFixture();
 
         Reservation reservation = pendingReservation(
@@ -273,10 +269,6 @@ class CoreBusinessServiceTest {
         verify(fixture.reservationSlotOccupancyMapper)
                 .deleteByReservationId(1001L);
 
-        verify(fixture.seatMapper).updateStatus(
-                1L,
-                BizConstants.SEAT_STATUS_FREE
-        );
     }
 
     @Test
@@ -286,7 +278,6 @@ class CoreBusinessServiceTest {
                 new AdminReservationService(
                         fixture.reservationMapper,
                         fixture.reservationSlotOccupancyMapper,
-                        fixture.seatMapper,
                         fixture.roomStatsService
                 );
 
@@ -315,10 +306,6 @@ class CoreBusinessServiceTest {
 
         verify(fixture.reservationSlotOccupancyMapper)
                 .deleteByReservationId(1001L);
-        verify(fixture.seatMapper).updateStatus(
-                1L,
-                BizConstants.SEAT_STATUS_FREE
-        );
         verify(fixture.roomStatsService)
                 .refreshRoomSeatStats(1L);
     }
@@ -411,14 +398,10 @@ class CoreBusinessServiceTest {
         assertThat(response.getStatus())
                 .isEqualTo(BizConstants.RESERVATION_USING);
 
-        verify(fixture.seatMapper).updateStatus(
-                1L,
-                BizConstants.SEAT_STATUS_USING
-        );
     }
 
     @Test
-    void leaveMarksFinishedAndReleasesSeat() {
+    void leaveMarksFinishedAndReleasesSlotOccupancies() {
         ReservationFixture fixture = new ReservationFixture();
 
         CheckinService checkinService = new CheckinService(
@@ -457,10 +440,6 @@ class CoreBusinessServiceTest {
         verify(fixture.reservationSlotOccupancyMapper)
                 .deleteByReservationId(1001L);
 
-        verify(fixture.seatMapper).updateStatus(
-                1L,
-                BizConstants.SEAT_STATUS_FREE
-        );
     }
 
     @Test
@@ -485,7 +464,7 @@ class CoreBusinessServiceTest {
     }
 
         @Test
-        void timeoutTaskMarksViolationBansAndReleasesSeat() {
+        void timeoutTaskMarksViolationBansAndReleasesSlotOccupancies() {
         ReservationMapper reservationMapper =
                 mock(ReservationMapper.class);
         ReservationSlotOccupancyMapper reservationSlotOccupancyMapper =
@@ -494,8 +473,6 @@ class CoreBusinessServiceTest {
                 mock(ViolationMapper.class);
         UserMapper userMapper =
                 mock(UserMapper.class);
-        SeatMapper seatMapper =
-                mock(SeatMapper.class);
         ConfigService configService =
                 mock(ConfigService.class);
         RoomStatsService roomStatsService =
@@ -507,7 +484,6 @@ class CoreBusinessServiceTest {
                         reservationSlotOccupancyMapper,
                         violationMapper,
                         userMapper,
-                        seatMapper,
                         configService,
                         roomStatsService
                 );
@@ -553,11 +529,6 @@ class CoreBusinessServiceTest {
 
         when(userMapper.findById(1L)).thenReturn(user);
 
-        when(reservationMapper.countActiveBySeatExclude(
-                2L,
-                1001L
-        )).thenReturn(0);
-
         int handled = service.releaseTimeoutReservations();
 
         assertThat(handled).isEqualTo(1);
@@ -567,10 +538,6 @@ class CoreBusinessServiceTest {
         verify(reservationSlotOccupancyMapper)
                 .deleteByReservationId(1001L);
 
-        verify(seatMapper).updateStatus(
-                2L,
-                BizConstants.SEAT_STATUS_FREE
-        );
     }
 
     private static CreateReservationRequest reservationRequest(

@@ -6,25 +6,42 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.List;
 
 @Mapper
 public interface SeatAvailabilityMapper {
 
     @Select("""
-            SELECT *
-            FROM reservation
-            WHERE room_id = #{roomId}
-              AND reservation_date = #{reservationDate}
-              AND status IN (1, 2)
-              AND start_time < #{endTime}
-              AND end_time > #{startTime}
+            <script>
+            SELECT DISTINCT
+                r.id,
+                r.user_id,
+                r.seat_id,
+                r.room_id,
+                r.reservation_date,
+                r.time_slot,
+                r.start_time,
+                r.end_time,
+                r.status,
+                r.sign_time,
+                r.leave_time,
+                r.create_time
+            FROM reservation_slot_occupancy o
+            JOIN reservation r
+              ON o.reservation_id = r.id
+            WHERE o.room_id = #{roomId}
+              AND o.reservation_date = #{reservationDate}
+              AND o.slot_id IN
+              <foreach collection="slotIds" item="slotId"
+                       open="(" separator="," close=")">
+                  #{slotId}
+              </foreach>
+              AND r.status IN (1, 2)
+            </script>
             """)
-    List<Reservation> findActiveReservations(
+    List<Reservation> findActiveReservationsBySlotIds(
             @Param("roomId") Long roomId,
             @Param("reservationDate") LocalDate reservationDate,
-            @Param("startTime") LocalTime startTime,
-            @Param("endTime") LocalTime endTime
+            @Param("slotIds") List<Long> slotIds
     );
 }
