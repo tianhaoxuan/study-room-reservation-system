@@ -18,12 +18,15 @@ import com.smartstudy.studyroom.mapper.ReservationMapper;
 import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
 import com.smartstudy.studyroom.mapper.SeatMapper;
 import com.smartstudy.studyroom.mapper.StudyRoomMapper;
+import com.smartstudy.studyroom.messaging.CheckinTimeoutScheduledEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 
@@ -39,6 +42,7 @@ public class ReservationService {
     private final RoomStatsService roomStatsService;
     private final ReservationSlotService reservationSlotService;
     private final ReservationLifecycleService reservationLifecycleService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ReservationService(
             ReservationMapper reservationMapper,
@@ -49,7 +53,8 @@ public class ReservationService {
             ConfigService configService,
             RoomStatsService roomStatsService,
             ReservationSlotService reservationSlotService,
-            ReservationLifecycleService reservationLifecycleService) {
+            ReservationLifecycleService reservationLifecycleService,
+            ApplicationEventPublisher eventPublisher) {
 
         this.reservationMapper = reservationMapper;
         this.reservationSlotOccupancyMapper = reservationSlotOccupancyMapper;
@@ -60,6 +65,7 @@ public class ReservationService {
         this.roomStatsService = roomStatsService;
         this.reservationSlotService = reservationSlotService;
         this.reservationLifecycleService = reservationLifecycleService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -214,6 +220,19 @@ public class ReservationService {
                 userId,
                 slotRange.slotIds()
         );
+
+        int checkinLimitMinutes = configService.getIntConfig(
+                BizConstants.CONFIG_CHECKIN_LIMIT_MINUTES,
+                15
+        );
+        eventPublisher.publishEvent(new CheckinTimeoutScheduledEvent(
+                reservation.getId(),
+                LocalDateTime.of(
+                                request.getReservationDate(),
+                                slotRange.startTime()
+                        )
+                        .plusMinutes(checkinLimitMinutes)
+        ));
 
         roomStatsService.refreshRoomSeatStats(
                 request.getRoomId()

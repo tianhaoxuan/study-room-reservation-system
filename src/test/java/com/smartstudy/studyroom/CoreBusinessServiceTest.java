@@ -26,6 +26,7 @@ import com.smartstudy.studyroom.mapper.SeatMapper;
 import com.smartstudy.studyroom.mapper.StudyRoomMapper;
 import com.smartstudy.studyroom.mapper.UserMapper;
 import com.smartstudy.studyroom.mapper.ViolationMapper;
+import com.smartstudy.studyroom.messaging.CheckinTimeoutScheduledEvent;
 import com.smartstudy.studyroom.service.AdminReservationService;
 import com.smartstudy.studyroom.service.AuthService;
 import com.smartstudy.studyroom.service.CheckinService;
@@ -40,6 +41,7 @@ import com.smartstudy.studyroom.service.UserService;
 import com.smartstudy.studyroom.service.ViolationService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
 import java.time.LocalDate;
@@ -178,6 +180,11 @@ class CoreBusinessServiceTest {
                 anyInt()
         )).thenReturn(2);
 
+        when(fixture.configService.getIntConfig(
+                eq(BizConstants.CONFIG_CHECKIN_LIMIT_MINUTES),
+                anyInt()
+        )).thenReturn(15);
+
         when(fixture.reservationMapper.insert(
                 any(Reservation.class)
         )).thenAnswer(invocation -> {
@@ -246,6 +253,18 @@ class CoreBusinessServiceTest {
                     assertThat(occupancy.getReservationDate())
                             .isEqualTo(request.getReservationDate());
                 });
+
+        ArgumentCaptor<CheckinTimeoutScheduledEvent> eventCaptor =
+                ArgumentCaptor.forClass(CheckinTimeoutScheduledEvent.class);
+        verify(fixture.eventPublisher)
+                .publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().reservationId())
+                .isEqualTo(1001L);
+        assertThat(eventCaptor.getValue().deadlineAt())
+                .isEqualTo(LocalDateTime.of(
+                        request.getReservationDate(),
+                        LocalTime.of(8, 15)
+                ));
 
     }
 
@@ -663,6 +682,9 @@ class CoreBusinessServiceTest {
         private final ReservationSlotService reservationSlotService =
                 mock(ReservationSlotService.class);
 
+        private final ApplicationEventPublisher eventPublisher =
+                mock(ApplicationEventPublisher.class);
+
         private final UserService userService =
                 new UserService(userMapper);
 
@@ -684,7 +706,8 @@ class CoreBusinessServiceTest {
                         configService,
                         roomStatsService,
                         reservationSlotService,
-                        reservationLifecycleService
+                        reservationLifecycleService,
+                        eventPublisher
                 );
     }
 }
