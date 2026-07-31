@@ -31,6 +31,7 @@ import com.smartstudy.studyroom.service.AuthService;
 import com.smartstudy.studyroom.service.CheckinService;
 import com.smartstudy.studyroom.service.ConfigService;
 import com.smartstudy.studyroom.service.ReservationService;
+import com.smartstudy.studyroom.service.ReservationLifecycleService;
 import com.smartstudy.studyroom.service.ReservationSlotService;
 import com.smartstudy.studyroom.service.ReservationTimeoutService;
 import com.smartstudy.studyroom.service.RoomStatsService;
@@ -287,8 +288,7 @@ class CoreBusinessServiceTest {
         AdminReservationService adminReservationService =
                 new AdminReservationService(
                         fixture.reservationMapper,
-                        fixture.reservationSlotOccupancyMapper,
-                        fixture.roomStatsService
+                        fixture.reservationLifecycleService
                 );
 
         Reservation reservation = pendingReservation(
@@ -357,10 +357,9 @@ class CoreBusinessServiceTest {
 
         CheckinService checkinService = new CheckinService(
                 fixture.reservationService,
-                fixture.reservationMapper,
                 fixture.seatMapper,
                 fixture.configService,
-                fixture.roomStatsService
+                fixture.reservationLifecycleService
         );
 
         Reservation reservation = pendingReservation(
@@ -419,10 +418,9 @@ class CoreBusinessServiceTest {
 
         CheckinService checkinService = new CheckinService(
                 fixture.reservationService,
-                fixture.reservationMapper,
                 fixture.seatMapper,
                 fixture.configService,
-                fixture.roomStatsService
+                fixture.reservationLifecycleService
         );
 
         Reservation reservation = pendingReservation(
@@ -492,15 +490,20 @@ class CoreBusinessServiceTest {
                 mock(ConfigService.class);
         RoomStatsService roomStatsService =
                 mock(RoomStatsService.class);
+        ReservationLifecycleService reservationLifecycleService =
+                new ReservationLifecycleService(
+                        reservationMapper,
+                        reservationSlotOccupancyMapper,
+                        roomStatsService
+                );
 
         ReservationTimeoutService service =
                 new ReservationTimeoutService(
                         reservationMapper,
-                        reservationSlotOccupancyMapper,
+                        reservationLifecycleService,
                         violationMapper,
                         userMapper,
-                        configService,
-                        roomStatsService
+                        configService
                 );
 
         Reservation reservation = pendingReservation(
@@ -663,6 +666,14 @@ class CoreBusinessServiceTest {
         private final UserService userService =
                 new UserService(userMapper);
 
+        private final ReservationLifecycleService
+                reservationLifecycleService =
+                new ReservationLifecycleService(
+                        reservationMapper,
+                        reservationSlotOccupancyMapper,
+                        roomStatsService
+                );
+
         private final ReservationService reservationService =
                 new ReservationService(
                         reservationMapper,
@@ -672,7 +683,8 @@ class CoreBusinessServiceTest {
                         userService,
                         configService,
                         roomStatsService,
-                        reservationSlotService
+                        reservationSlotService,
+                        reservationLifecycleService
                 );
     }
 }

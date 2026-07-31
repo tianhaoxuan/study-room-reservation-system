@@ -6,7 +6,6 @@ import com.smartstudy.studyroom.entity.Reservation;
 import com.smartstudy.studyroom.entity.User;
 import com.smartstudy.studyroom.entity.Violation;
 import com.smartstudy.studyroom.mapper.ReservationMapper;
-import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
 import com.smartstudy.studyroom.mapper.UserMapper;
 import com.smartstudy.studyroom.mapper.ViolationMapper;
 import org.springframework.stereotype.Service;
@@ -19,26 +18,23 @@ import java.util.List;
 public class ReservationTimeoutService {
 
     private final ReservationMapper reservationMapper;
-    private final ReservationSlotOccupancyMapper reservationSlotOccupancyMapper;
+    private final ReservationLifecycleService reservationLifecycleService;
     private final ViolationMapper violationMapper;
     private final UserMapper userMapper;
     private final ConfigService configService;
-    private final RoomStatsService roomStatsService;
 
     public ReservationTimeoutService(
             ReservationMapper reservationMapper,
-            ReservationSlotOccupancyMapper reservationSlotOccupancyMapper,
+            ReservationLifecycleService reservationLifecycleService,
             ViolationMapper violationMapper,
             UserMapper userMapper,
-            ConfigService configService,
-            RoomStatsService roomStatsService) {
+            ConfigService configService) {
+
         this.reservationMapper = reservationMapper;
-        this.reservationSlotOccupancyMapper =
-                reservationSlotOccupancyMapper;
+        this.reservationLifecycleService = reservationLifecycleService;
         this.violationMapper = violationMapper;
         this.userMapper = userMapper;
         this.configService = configService;
-        this.roomStatsService = roomStatsService;
     }
 
     @Transactional
@@ -69,18 +65,9 @@ public class ReservationTimeoutService {
                 continue;
             }
 
-            int changed = reservationMapper.updateStatusIfCurrent(
-                    reservation.getId(),
-                    ReservationStatus.PENDING_CHECKIN.code(),
-                    ReservationStatus.VIOLATED.code()
-            );
-            if (changed == 0) {
+            if (!reservationLifecycleService.violateNoShow(reservation)) {
                 continue;
             }
-
-            reservationSlotOccupancyMapper.deleteByReservationId(
-                    reservation.getId()
-            );
 
             Violation violation = new Violation();
             violation.setUserId(reservation.getUserId());
@@ -88,8 +75,8 @@ public class ReservationTimeoutService {
             violation.setViolationType(
                     BizConstants.VIOLATION_TIMEOUT_CHECKIN
             );
-            violation.setReason("超时未签到");
-            violation.setHandleResult("记录违规一次");
+            violation.setReason("\u8d85\u65f6\u672a\u7b7e\u5230");
+            violation.setHandleResult("\u8bb0\u5f55\u8fdd\u89c4\u4e00\u6b21");
             violationMapper.insert(violation);
 
             userMapper.increaseViolation(reservation.getUserId());
@@ -100,9 +87,6 @@ public class ReservationTimeoutService {
                 userMapper.banUser(reservation.getUserId());
             }
 
-            roomStatsService.refreshRoomSeatStats(
-                    reservation.getRoomId()
-            );
             handled++;
         }
 

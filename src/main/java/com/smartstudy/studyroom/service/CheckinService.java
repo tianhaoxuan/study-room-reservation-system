@@ -7,7 +7,6 @@ import com.smartstudy.studyroom.dto.StatusResponse;
 import com.smartstudy.studyroom.entity.Reservation;
 import com.smartstudy.studyroom.entity.Seat;
 import com.smartstudy.studyroom.exception.BusinessException;
-import com.smartstudy.studyroom.mapper.ReservationMapper;
 import com.smartstudy.studyroom.mapper.SeatMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,22 +17,20 @@ import java.time.LocalDateTime;
 public class CheckinService {
 
     private final ReservationService reservationService;
-    private final ReservationMapper reservationMapper;
     private final SeatMapper seatMapper;
     private final ConfigService configService;
-    private final RoomStatsService roomStatsService;
+    private final ReservationLifecycleService reservationLifecycleService;
 
     public CheckinService(
             ReservationService reservationService,
-            ReservationMapper reservationMapper,
             SeatMapper seatMapper,
             ConfigService configService,
-            RoomStatsService roomStatsService) {
+            ReservationLifecycleService reservationLifecycleService) {
+
         this.reservationService = reservationService;
-        this.reservationMapper = reservationMapper;
         this.seatMapper = seatMapper;
         this.configService = configService;
-        this.roomStatsService = roomStatsService;
+        this.reservationLifecycleService = reservationLifecycleService;
     }
 
     @Transactional
@@ -53,7 +50,7 @@ public class CheckinService {
         if (!currentStatus.canTransitionTo(ReservationStatus.IN_USE)) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "当前预约不能签到"
+                    "\u5f53\u524d\u9884\u7ea6\u4e0d\u80fd\u7b7e\u5230"
             );
         }
 
@@ -62,7 +59,7 @@ public class CheckinService {
                 || !matchesSeatCode(seatCode, reservation, seat)) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "扫码座位与预约座位不一致"
+                    "\u626b\u7801\u5ea7\u4f4d\u4e0e\u9884\u7ea6\u5ea7\u4f4d\u4e0d\u4e00\u81f4"
             );
         }
 
@@ -79,32 +76,18 @@ public class CheckinService {
         if (now.isBefore(startAt)) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "未到签到时间"
+                    "\u672a\u5230\u7b7e\u5230\u65f6\u95f4"
             );
         }
         if (now.isAfter(startAt.plusMinutes(limitMinutes))) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "已超过签到宽限时间"
+                    "\u5df2\u8d85\u8fc7\u7b7e\u5230\u5bbd\u9650\u65f6\u95f4"
             );
         }
 
-        int changed = reservationMapper.markSigned(
-                reservationId,
-                currentStatus.code(),
-                ReservationStatus.IN_USE.code(),
-                now
-        );
-        if (changed == 0) {
-            throw new BusinessException(
-                    StatusCode.PARAM_ERROR,
-                    "预约状态已变化，请刷新后重试"
-            );
-        }
+        reservationLifecycleService.markSigned(reservation, now);
 
-        roomStatsService.refreshRoomSeatStats(
-                reservation.getRoomId()
-        );
         return new StatusResponse(
                 reservationId,
                 ReservationStatus.IN_USE.code()
@@ -119,33 +102,9 @@ public class CheckinService {
                         reservationId
                 );
 
-        ReservationStatus currentStatus =
-                ReservationStatus.fromCode(reservation.getStatus());
-        if (!currentStatus.canTransitionTo(
-                ReservationStatus.COMPLETED
-        )) {
-            throw new BusinessException(
-                    StatusCode.PARAM_ERROR,
-                    "只有使用中的预约可以退座"
-            );
-        }
-
-        int changed = reservationMapper.markLeft(
-                reservationId,
-                currentStatus.code(),
-                ReservationStatus.COMPLETED.code(),
+        reservationLifecycleService.completeByLeave(
+                reservation,
                 LocalDateTime.now()
-        );
-        if (changed == 0) {
-            throw new BusinessException(
-                    StatusCode.PARAM_ERROR,
-                    "预约状态已变化，请刷新后重试"
-            );
-        }
-
-        reservationService.releaseSlotOccupancies(reservationId);
-        roomStatsService.refreshRoomSeatStats(
-                reservation.getRoomId()
         );
     }
 
@@ -153,6 +112,10 @@ public class CheckinService {
             String seatCode,
             Reservation reservation,
             Seat seat) {
+
+        if (seatCode == null) {
+            return false;
+        }
 
         String byRoomAndSeatNo =
                 reservation.getRoomId() + "-" + seat.getSeatNo();
