@@ -2,6 +2,7 @@ package com.smartstudy.studyroom;
 
 import com.smartstudy.studyroom.common.BizConstants;
 import com.smartstudy.studyroom.common.PageResult;
+import com.smartstudy.studyroom.common.ReservationStatus;
 import com.smartstudy.studyroom.dto.CheckinSignRequest;
 import com.smartstudy.studyroom.dto.CreateReservationRequest;
 import com.smartstudy.studyroom.dto.CreateReservationResponse;
@@ -290,8 +291,9 @@ class CoreBusinessServiceTest {
 
         when(fixture.reservationMapper.findById(1001L))
                 .thenReturn(reservation);
-        when(fixture.reservationMapper.updateActiveStatus(
+        when(fixture.reservationMapper.updateStatusIfCurrentIn(
                 1001L,
+                ReservationStatus.adminCancellableCodes(),
                 BizConstants.RESERVATION_CANCELED
         )).thenReturn(1);
         when(fixture.reservationMapper.countActiveBySeatExclude(
@@ -382,6 +384,8 @@ class CoreBusinessServiceTest {
 
         when(fixture.reservationMapper.markSigned(
                 eq(1001L),
+                eq(BizConstants.RESERVATION_PENDING),
+                eq(BizConstants.RESERVATION_USING),
                 any()
         )).thenReturn(1);
 
@@ -427,6 +431,8 @@ class CoreBusinessServiceTest {
 
         when(fixture.reservationMapper.markLeft(
                 eq(1001L),
+                eq(BizConstants.RESERVATION_USING),
+                eq(BizConstants.RESERVATION_FINISHED),
                 any()
         )).thenReturn(1);
 
@@ -515,7 +521,9 @@ class CoreBusinessServiceTest {
                 anyInt()
         )).thenReturn(3);
 
-        when(reservationMapper.findAllPending())
+        when(reservationMapper.findByStatus(
+                BizConstants.RESERVATION_PENDING
+        ))
                 .thenReturn(Collections.singletonList(reservation));
 
         when(reservationMapper.updateStatusIfCurrent(

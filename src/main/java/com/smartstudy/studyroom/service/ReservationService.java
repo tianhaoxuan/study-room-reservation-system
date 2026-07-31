@@ -2,6 +2,7 @@ package com.smartstudy.studyroom.service;
 
 import com.smartstudy.studyroom.common.BizConstants;
 import com.smartstudy.studyroom.common.PageResult;
+import com.smartstudy.studyroom.common.ReservationStatus;
 import com.smartstudy.studyroom.common.StatusCode;
 import com.smartstudy.studyroom.dto.CreateReservationRequest;
 import com.smartstudy.studyroom.dto.CreateReservationResponse;
@@ -203,7 +204,7 @@ public class ReservationService {
         reservation.setStartTime(slotRange.startTime());
         reservation.setEndTime(slotRange.endTime());
         reservation.setStatus(
-                BizConstants.RESERVATION_PENDING
+                ReservationStatus.PENDING_CHECKIN.code()
         );
 
         reservationMapper.insert(reservation);
@@ -233,8 +234,12 @@ public class ReservationService {
                 reservationId
         );
 
-        if (!Integer.valueOf(BizConstants.RESERVATION_PENDING)
-                .equals(reservation.getStatus())) {
+        ReservationStatus currentStatus =
+                ReservationStatus.fromCode(reservation.getStatus());
+
+        if (!currentStatus.canTransitionTo(
+                ReservationStatus.CANCELLED
+        )) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
                     "只有待签到预约可以取消"
@@ -243,8 +248,8 @@ public class ReservationService {
 
         int changed = reservationMapper.updateStatusIfCurrent(
                 reservationId,
-                BizConstants.RESERVATION_PENDING,
-                BizConstants.RESERVATION_CANCELED
+                currentStatus.code(),
+                ReservationStatus.CANCELLED.code()
         );
 
         if (changed == 0) {

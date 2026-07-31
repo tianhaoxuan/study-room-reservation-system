@@ -1,6 +1,7 @@
 package com.smartstudy.studyroom.service;
 
 import com.smartstudy.studyroom.common.BizConstants;
+import com.smartstudy.studyroom.common.ReservationStatus;
 import com.smartstudy.studyroom.common.StatusCode;
 import com.smartstudy.studyroom.dto.StatusResponse;
 import com.smartstudy.studyroom.entity.Reservation;
@@ -22,11 +23,12 @@ public class CheckinService {
     private final ConfigService configService;
     private final RoomStatsService roomStatsService;
 
-    public CheckinService(ReservationService reservationService,
-                          ReservationMapper reservationMapper,
-                          SeatMapper seatMapper,
-                          ConfigService configService,
-                          RoomStatsService roomStatsService) {
+    public CheckinService(
+            ReservationService reservationService,
+            ReservationMapper reservationMapper,
+            SeatMapper seatMapper,
+            ConfigService configService,
+            RoomStatsService roomStatsService) {
         this.reservationService = reservationService;
         this.reservationMapper = reservationMapper;
         this.seatMapper = seatMapper;
@@ -34,62 +36,130 @@ public class CheckinService {
         this.roomStatsService = roomStatsService;
     }
 
-    /**
-     * 功能：扫码签到。
-     * 请求参数：reservationId、seatCode。
-     * 返回值：reservationId 和签到后的状态。
-     * 核心逻辑说明：校验本人预约、待签到状态、二维码座位匹配，并限制在预约开始后宽容时间内签到。
-     */
     @Transactional
-    public StatusResponse sign(Long userId, Long reservationId, String seatCode) {
-        Reservation reservation = reservationService.requireOwnReservation(userId, reservationId);
-        if (!Integer.valueOf(BizConstants.RESERVATION_PENDING).equals(reservation.getStatus())) {
-            throw new BusinessException(StatusCode.PARAM_ERROR, "当前预约不能签到");
+    public StatusResponse sign(
+            Long userId,
+            Long reservationId,
+            String seatCode) {
+
+        Reservation reservation =
+                reservationService.requireOwnReservation(
+                        userId,
+                        reservationId
+                );
+
+        ReservationStatus currentStatus =
+                ReservationStatus.fromCode(reservation.getStatus());
+        if (!currentStatus.canTransitionTo(ReservationStatus.IN_USE)) {
+            throw new BusinessException(
+                    StatusCode.PARAM_ERROR,
+                    "当前预约不能签到"
+            );
         }
+
         Seat seat = seatMapper.findById(reservation.getSeatId());
-        if (seat == null || !matchesSeatCode(seatCode, reservation, seat)) {
-            throw new BusinessException(StatusCode.PARAM_ERROR, "扫码座位与预约座位不一致");
+        if (seat == null
+                || !matchesSeatCode(seatCode, reservation, seat)) {
+            throw new BusinessException(
+                    StatusCode.PARAM_ERROR,
+                    "扫码座位与预约座位不一致"
+            );
         }
-        LocalDateTime startAt = LocalDateTime.of(reservation.getReservationDate(), reservation.getStartTime());
+
+        LocalDateTime startAt = LocalDateTime.of(
+                reservation.getReservationDate(),
+                reservation.getStartTime()
+        );
         LocalDateTime now = LocalDateTime.now();
-        int limitMinutes = configService.getIntConfig(BizConstants.CONFIG_CHECKIN_LIMIT_MINUTES, 15);
+        int limitMinutes = configService.getIntConfig(
+                BizConstants.CONFIG_CHECKIN_LIMIT_MINUTES,
+                15
+        );
+
         if (now.isBefore(startAt)) {
-            throw new BusinessException(StatusCode.PARAM_ERROR, "未到签到时间");
+            throw new BusinessException(
+                    StatusCode.PARAM_ERROR,
+                    "未到签到时间"
+            );
         }
         if (now.isAfter(startAt.plusMinutes(limitMinutes))) {
-            throw new BusinessException(StatusCode.PARAM_ERROR, "已超过签到宽容时间");
+            throw new BusinessException(
+                    StatusCode.PARAM_ERROR,
+                    "已超过签到宽限时间"
+            );
         }
-        int changed = reservationMapper.markSigned(reservationId, now);
+
+        int changed = reservationMapper.markSigned(
+                reservationId,
+                currentStatus.code(),
+                ReservationStatus.IN_USE.code(),
+                now
+        );
         if (changed == 0) {
-            throw new BusinessException(StatusCode.PARAM_ERROR, "预约状态已变化，请刷新后重试");
+            throw new BusinessException(
+                    StatusCode.PARAM_ERROR,
+                    "预约状态已变化，请刷新后重试"
+            );
         }
-        roomStatsService.refreshRoomSeatStats(reservation.getRoomId());
-        return new StatusResponse(reservationId, BizConstants.RESERVATION_USING);
+
+        roomStatsService.refreshRoomSeatStats(
+                reservation.getRoomId()
+        );
+        return new StatusResponse(
+                reservationId,
+                ReservationStatus.IN_USE.code()
+        );
     }
 
-    /**
-     * 功能：提前退座。
-     * 请求参数：reservationId。
-     * 返回值：无。
-     * 核心逻辑说明：只能结束本人使用中的预约；退座后预约完成、座位释放、自习室统计刷新。
-     */
     @Transactional
     public void leave(Long userId, Long reservationId) {
-        Reservation reservation = reservationService.requireOwnReservation(userId, reservationId);
-        if (!Integer.valueOf(BizConstants.RESERVATION_USING).equals(reservation.getStatus())) {
-            throw new BusinessException(StatusCode.PARAM_ERROR, "只有使用中的预约可以退座");
+        Reservation reservation =
+                reservationService.requireOwnReservation(
+                        userId,
+                        reservationId
+                );
+
+        ReservationStatus currentStatus =
+                ReservationStatus.fromCode(reservation.getStatus());
+        if (!currentStatus.canTransitionTo(
+                ReservationStatus.COMPLETED
+        )) {
+            throw new BusinessException(
+                    StatusCode.PARAM_ERROR,
+                    "只有使用中的预约可以退座"
+            );
         }
-        int changed = reservationMapper.markLeft(reservationId, LocalDateTime.now());
+
+        int changed = reservationMapper.markLeft(
+                reservationId,
+                currentStatus.code(),
+                ReservationStatus.COMPLETED.code(),
+                LocalDateTime.now()
+        );
         if (changed == 0) {
-            throw new BusinessException(StatusCode.PARAM_ERROR, "预约状态已变化，请刷新后重试");
+            throw new BusinessException(
+                    StatusCode.PARAM_ERROR,
+                    "预约状态已变化，请刷新后重试"
+            );
         }
+
         reservationService.releaseSlotOccupancies(reservationId);
-        roomStatsService.refreshRoomSeatStats(reservation.getRoomId());
+        roomStatsService.refreshRoomSeatStats(
+                reservation.getRoomId()
+        );
     }
 
-    private boolean matchesSeatCode(String seatCode, Reservation reservation, Seat seat) {
-        String byRoomAndSeatNo = reservation.getRoomId() + "-" + seat.getSeatNo();
+    private boolean matchesSeatCode(
+            String seatCode,
+            Reservation reservation,
+            Seat seat) {
+
+        String byRoomAndSeatNo =
+                reservation.getRoomId() + "-" + seat.getSeatNo();
         String bySeatId = String.valueOf(seat.getId());
-        return byRoomAndSeatNo.equalsIgnoreCase(seatCode.trim()) || bySeatId.equals(seatCode.trim());
+        String normalizedSeatCode = seatCode.trim();
+
+        return byRoomAndSeatNo.equalsIgnoreCase(normalizedSeatCode)
+                || bySeatId.equals(normalizedSeatCode);
     }
 }

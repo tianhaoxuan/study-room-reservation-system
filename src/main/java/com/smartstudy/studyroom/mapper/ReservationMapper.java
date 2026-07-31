@@ -13,6 +13,7 @@ import org.apache.ibatis.annotations.Update;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.Collection;
 import java.util.List;
 
 @Mapper
@@ -127,37 +128,48 @@ public interface ReservationMapper {
     );
 
     @Update("""
+            <script>
             UPDATE reservation
             SET status = #{status}
             WHERE id = #{id}
-              AND status IN (1, 2)
+              AND status IN
+              <foreach collection="oldStatuses" item="oldStatus"
+                       open="(" separator="," close=")">
+                  #{oldStatus}
+              </foreach>
+            </script>
             """)
-    int updateActiveStatus(
+    int updateStatusIfCurrentIn(
             @Param("id") Long id,
+            @Param("oldStatuses") Collection<Integer> oldStatuses,
             @Param("status") Integer status
     );
 
     @Update("""
             UPDATE reservation
-            SET status = 2,
+            SET status = #{status},
                 sign_time = #{signTime}
             WHERE id = #{id}
-              AND status = 1
+              AND status = #{oldStatus}
             """)
     int markSigned(
             @Param("id") Long id,
+            @Param("oldStatus") Integer oldStatus,
+            @Param("status") Integer status,
             @Param("signTime") LocalDateTime signTime
     );
 
     @Update("""
             UPDATE reservation
-            SET status = 3,
+            SET status = #{status},
                 leave_time = #{leaveTime}
             WHERE id = #{id}
-              AND status = 2
+              AND status = #{oldStatus}
             """)
     int markLeft(
             @Param("id") Long id,
+            @Param("oldStatus") Integer oldStatus,
+            @Param("status") Integer status,
             @Param("leaveTime") LocalDateTime leaveTime
     );
 
@@ -209,9 +221,9 @@ public interface ReservationMapper {
     @Select("""
             SELECT *
             FROM reservation
-            WHERE status = 1
+            WHERE status = #{status}
             """)
-    List<Reservation> findAllPending();
+    List<Reservation> findByStatus(@Param("status") Integer status);
 
 
 
