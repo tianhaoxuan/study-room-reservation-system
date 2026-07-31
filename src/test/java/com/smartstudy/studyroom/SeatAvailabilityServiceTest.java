@@ -100,11 +100,10 @@ class SeatAvailabilityServiceTest {
         when(seatMapper.findByRoomId(1L))
                 .thenReturn(List.of(seat1, seat2, seat3));
 
-        when(seatAvailabilityMapper.findActiveReservations(
+        when(seatAvailabilityMapper.findActiveReservationsBySlotIds(
                 1L,
                 reservationDate,
-                LocalTime.of(8, 0),
-                LocalTime.of(10, 0)
+                List.of(2L, 3L, 4L, 5L)
         )).thenReturn(List.of(
                 pendingReservation,
                 usingReservation
@@ -130,11 +129,10 @@ class SeatAvailabilityServiceTest {
                 .isEqualTo(BizConstants.SEAT_STATUS_REPAIR);
 
         verify(seatAvailabilityMapper)
-                .findActiveReservations(
+                .findActiveReservationsBySlotIds(
                         1L,
                         reservationDate,
-                        LocalTime.of(8, 0),
-                        LocalTime.of(10, 0)
+                        List.of(2L, 3L, 4L, 5L)
                 );
     }
 
@@ -174,11 +172,10 @@ class SeatAvailabilityServiceTest {
         when(seatMapper.findByRoomId(1L))
                 .thenReturn(List.of(seat));
 
-        when(seatAvailabilityMapper.findActiveReservations(
+        when(seatAvailabilityMapper.findActiveReservationsBySlotIds(
                 1L,
                 reservationDate,
-                LocalTime.of(8, 0),
-                LocalTime.of(9, 0)
+                List.of(2L, 3L)
         )).thenReturn(List.of());
 
         List<SeatAvailabilityResponse> result =

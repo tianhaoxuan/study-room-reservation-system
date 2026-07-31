@@ -67,4 +67,16 @@ public interface ReservationSlotOccupancyMapper {
             @Param("reservationDate") LocalDate reservationDate,
             @Param("slotIds") List<Long> slotIds
     );
+
+    @Select("""
+            SELECT COUNT(DISTINCT o.seat_id)
+            FROM reservation_slot_occupancy o
+            JOIN reservation r
+              ON o.reservation_id = r.id
+            WHERE o.room_id = #{roomId}
+              AND r.status IN (1, 2)
+            """)
+    int countDistinctActiveSeatsByRoomId(
+            @Param("roomId") Long roomId
+    );
 }

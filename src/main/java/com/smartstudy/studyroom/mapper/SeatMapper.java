@@ -37,9 +37,4 @@ public interface SeatMapper {
     @org.apache.ibatis.annotations.Delete("DELETE FROM seat WHERE id = #{id}")
     int deleteById(@Param("id") Long id);
 
-    @Update("UPDATE seat SET status = #{status} WHERE id = #{id}")
-    int updateStatus(@Param("id") Long id, @Param("status") Integer status);
-
-    @Select("SELECT COUNT(*) FROM seat WHERE room_id = #{roomId} AND status IN (2, 3)")
-    int countReservedOrUsingByRoomId(@Param("roomId") Long roomId);
 }
