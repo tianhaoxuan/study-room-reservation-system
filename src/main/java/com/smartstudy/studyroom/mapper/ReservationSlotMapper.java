@@ -46,4 +46,12 @@ public interface ReservationSlotMapper {
             @Param("startOrder") Integer startOrder,
             @Param("endOrder") Integer endOrder
     );
+
+    @Select("""
+            SELECT id
+            FROM reservation_slot
+            WHERE enabled = 1
+            ORDER BY display_order
+            """)
+    List<Long> findEnabledSlotIds();
 }

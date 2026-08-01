@@ -1,13 +1,12 @@
 package com.smartstudy.studyroom.task;
 
-import com.smartstudy.studyroom.redis.RedisSeatOccupancyBitmapConsistencyService;
+import com.smartstudy.studyroom.redis.RedisSeatOccupancyBitmapBatchConsistencyService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
-import java.util.List;
 
 @Component
 @ConditionalOnProperty(
@@ -17,32 +16,33 @@ import java.util.List;
 )
 public class RedisSeatOccupancyBitmapConsistencyTask {
 
-    private final RedisSeatOccupancyBitmapConsistencyService
-            consistencyService;
-    private final Long roomId;
-    private final List<Long> slotIds;
+    private final RedisSeatOccupancyBitmapBatchConsistencyService
+            batchConsistencyService;
+    private final int dateWindowDays;
+    private final int roomLimit;
 
     public RedisSeatOccupancyBitmapConsistencyTask(
-            RedisSeatOccupancyBitmapConsistencyService consistencyService,
-            @Value("${studyroom.redis.seat-occupancy.consistency.default-room-id:1}")
-            Long roomId,
-            @Value("${studyroom.redis.seat-occupancy.consistency.default-slot-ids:1,2,3,4,5,6,7,8,9,10}")
-            List<Long> slotIds) {
+            RedisSeatOccupancyBitmapBatchConsistencyService
+                    batchConsistencyService,
+            @Value("${studyroom.redis.seat-occupancy.consistency.date-window-days:2}")
+            int dateWindowDays,
+            @Value("${studyroom.redis.seat-occupancy.consistency.room-limit:50}")
+            int roomLimit) {
 
-        this.consistencyService = consistencyService;
-        this.roomId = roomId;
-        this.slotIds = slotIds;
+        this.batchConsistencyService = batchConsistencyService;
+        this.dateWindowDays = dateWindowDays;
+        this.roomLimit = roomLimit;
     }
 
     @Scheduled(
             fixedDelayString =
                     "${studyroom.redis.seat-occupancy.consistency.fixed-delay-ms:300000}"
     )
-    public void reconcileTodayProjection() {
-        consistencyService.reconcile(
-                roomId,
+    public void reconcileProjection() {
+        batchConsistencyService.reconcileFrom(
                 LocalDate.now(),
-                slotIds
+                dateWindowDays,
+                roomLimit
         );
     }
 }

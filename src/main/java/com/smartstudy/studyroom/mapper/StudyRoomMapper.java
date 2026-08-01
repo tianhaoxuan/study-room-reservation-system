@@ -24,6 +24,9 @@ public interface StudyRoomMapper {
             "</script>")
     List<StudyRoom> findAll(@Param("buildingId") Long buildingId);
 
+    @Select("SELECT id FROM study_room WHERE status = 1 ORDER BY id ASC")
+    List<Long> findActiveRoomIds();
+
     @Select("SELECT COUNT(*) FROM study_room WHERE building_id = #{buildingId} AND room_name = #{roomName}")
     long countByBuildingAndName(@Param("buildingId") Long buildingId, @Param("roomName") String roomName);
 
