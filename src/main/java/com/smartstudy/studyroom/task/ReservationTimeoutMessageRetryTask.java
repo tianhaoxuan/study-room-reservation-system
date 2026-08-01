@@ -2,7 +2,10 @@ package com.smartstudy.studyroom.task;
 
 import com.smartstudy.studyroom.entity.ReservationTimeoutMessage;
 import com.smartstudy.studyroom.messaging.CheckinTimeoutMessagePublisher;
+import com.smartstudy.studyroom.metrics.StudyRoomBusinessMetrics;
 import com.smartstudy.studyroom.service.ReservationTimeoutMessageService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -22,19 +25,52 @@ public class ReservationTimeoutMessageRetryTask {
     private final CheckinTimeoutMessagePublisher publisher;
     private final int maxRetryCount;
     private final int batchSize;
+    private final StudyRoomBusinessMetrics metrics;
 
+    @Autowired
     public ReservationTimeoutMessageRetryTask(
             ReservationTimeoutMessageService messageService,
             CheckinTimeoutMessagePublisher publisher,
             @Value("${studyroom.rabbitmq.outbox-retry.max-retry-count:5}")
             int maxRetryCount,
             @Value("${studyroom.rabbitmq.outbox-retry.batch-size:50}")
-            int batchSize) {
+            int batchSize,
+            ObjectProvider<StudyRoomBusinessMetrics> metrics) {
 
         this.messageService = messageService;
         this.publisher = publisher;
         this.maxRetryCount = maxRetryCount;
         this.batchSize = batchSize;
+        this.metrics = metrics.getIfAvailable();
+    }
+
+    public ReservationTimeoutMessageRetryTask(
+            ReservationTimeoutMessageService messageService,
+            CheckinTimeoutMessagePublisher publisher,
+            int maxRetryCount,
+            int batchSize) {
+
+        this(
+                messageService,
+                publisher,
+                maxRetryCount,
+                batchSize,
+                (StudyRoomBusinessMetrics) null
+        );
+    }
+
+    private ReservationTimeoutMessageRetryTask(
+            ReservationTimeoutMessageService messageService,
+            CheckinTimeoutMessagePublisher publisher,
+            int maxRetryCount,
+            int batchSize,
+            StudyRoomBusinessMetrics metrics) {
+
+        this.messageService = messageService;
+        this.publisher = publisher;
+        this.maxRetryCount = maxRetryCount;
+        this.batchSize = batchSize;
+        this.metrics = metrics;
     }
 
     @Scheduled(
@@ -45,8 +81,16 @@ public class ReservationTimeoutMessageRetryTask {
         List<ReservationTimeoutMessage> messages =
                 messageService.findRetryable(maxRetryCount, batchSize);
 
+        recordBatch(messages.size());
+
         for (ReservationTimeoutMessage message : messages) {
             publisher.publishOutboxMessage(message);
+        }
+    }
+
+    private void recordBatch(int messageCount) {
+        if (metrics != null) {
+            metrics.recordOutboxRetryBatch("completed", messageCount);
         }
     }
 }

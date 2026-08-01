@@ -1,7 +1,10 @@
 package com.smartstudy.studyroom.redis;
 
+import com.smartstudy.studyroom.metrics.StudyRoomBusinessMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -22,16 +25,47 @@ public class SeatOccupancyBitmapService {
     private final StringRedisTemplate redisTemplate;
     private final SeatOccupancyBitmapKey bitmapKey;
     private final int ttlDays;
+    private final StudyRoomBusinessMetrics metrics;
 
+    @Autowired
     public SeatOccupancyBitmapService(
             StringRedisTemplate redisTemplate,
             SeatOccupancyBitmapKey bitmapKey,
             @Value("${studyroom.redis.seat-occupancy.ttl-days:45}")
-            int ttlDays) {
+            int ttlDays,
+            ObjectProvider<StudyRoomBusinessMetrics> metrics) {
+
+        this(
+                redisTemplate,
+                bitmapKey,
+                ttlDays,
+                metrics.getIfAvailable()
+        );
+    }
+
+    private SeatOccupancyBitmapService(
+            StringRedisTemplate redisTemplate,
+            SeatOccupancyBitmapKey bitmapKey,
+            int ttlDays,
+            StudyRoomBusinessMetrics metrics) {
 
         this.redisTemplate = redisTemplate;
         this.bitmapKey = bitmapKey;
         this.ttlDays = ttlDays;
+        this.metrics = metrics;
+    }
+
+    public SeatOccupancyBitmapService(
+            StringRedisTemplate redisTemplate,
+            SeatOccupancyBitmapKey bitmapKey,
+            int ttlDays) {
+
+        this(
+                redisTemplate,
+                bitmapKey,
+                ttlDays,
+                (StudyRoomBusinessMetrics) null
+        );
     }
 
     public void occupy(
@@ -46,7 +80,9 @@ public class SeatOccupancyBitmapService {
         try {
             redisTemplate.opsForValue().setBit(key, seatId, true);
             redisTemplate.expire(key, ttl());
+            recordWrite("occupy", "success");
         } catch (RuntimeException ex) {
+            recordWrite("occupy", "failed");
             log.warn(
                     "Failed to set Redis seat occupancy bitmap, key={}, seatId={}",
                     key,
@@ -68,7 +104,9 @@ public class SeatOccupancyBitmapService {
         try {
             redisTemplate.opsForValue().setBit(key, seatId, false);
             redisTemplate.expire(key, ttl());
+            recordWrite("release", "success");
         } catch (RuntimeException ex) {
+            recordWrite("release", "failed");
             log.warn(
                     "Failed to clear Redis seat occupancy bitmap, key={}, seatId={}",
                     key,
@@ -104,8 +142,10 @@ public class SeatOccupancyBitmapService {
             }
 
             redisTemplate.expire(key, ttl());
+            recordRebuild("success");
             return true;
         } catch (RuntimeException ex) {
+            recordRebuild("failed");
             log.warn(
                     "Failed to rebuild Redis seat occupancy bitmap, key={}, occupiedSeatIds={}",
                     key,
@@ -127,6 +167,7 @@ public class SeatOccupancyBitmapService {
 
         try {
             if (!allSlotKeysExist(roomId, reservationDate, slotIds)) {
+                recordRead("missing");
                 return Optional.empty();
             }
 
@@ -141,8 +182,10 @@ public class SeatOccupancyBitmapService {
                     occupiedSeatIds.add(seatId);
                 }
             }
+            recordRead("hit");
             return Optional.of(occupiedSeatIds);
         } catch (RuntimeException ex) {
+            recordRead("failed");
             log.warn(
                     "Failed to read Redis seat occupancy bitmap, roomId={}, reservationDate={}, slotIds={}",
                     roomId,
@@ -233,6 +276,24 @@ public class SeatOccupancyBitmapService {
             throw new IllegalArgumentException(
                     "seatId must be a non-negative value"
             );
+        }
+    }
+
+    private void recordWrite(String operation, String result) {
+        if (metrics != null) {
+            metrics.recordRedisBitmapWrite(operation, result);
+        }
+    }
+
+    private void recordRead(String result) {
+        if (metrics != null) {
+            metrics.recordRedisBitmapRead(result);
+        }
+    }
+
+    private void recordRebuild(String result) {
+        if (metrics != null) {
+            metrics.recordRedisBitmapRebuild(result);
         }
     }
 }
