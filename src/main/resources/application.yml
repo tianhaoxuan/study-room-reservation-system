@@ -39,6 +39,19 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: study-room-reservation
+
 logging:
   level:
     com.smartstudy.studyroom.mapper: debug

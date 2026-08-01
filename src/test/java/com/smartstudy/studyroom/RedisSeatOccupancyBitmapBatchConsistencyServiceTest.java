@@ -3,6 +3,7 @@ package com.smartstudy.studyroom;
 import com.smartstudy.studyroom.mapper.ReservationSlotMapper;
 import com.smartstudy.studyroom.mapper.StudyRoomMapper;
 import com.smartstudy.studyroom.redis.RedisSeatOccupancyBitmapBatchConsistencyService;
+import com.smartstudy.studyroom.redis.RedisSeatOccupancyBitmapConsistencyMetrics;
 import com.smartstudy.studyroom.redis.RedisSeatOccupancyBitmapConsistencyService;
 import org.junit.jupiter.api.Test;
 
@@ -68,6 +69,8 @@ class RedisSeatOccupancyBitmapBatchConsistencyServiceTest {
         assertThat(result.rebuilt()).isEqualTo(1);
         assertThat(result.skipped()).isZero();
         assertThat(result.failed()).isZero();
+
+        verify(fixture.metrics).recordBatch(result);
     }
 
     @Test
@@ -108,6 +111,7 @@ class RedisSeatOccupancyBitmapBatchConsistencyServiceTest {
                 eq(startDate),
                 eq(slotIds)
         );
+        verify(fixture.metrics).recordBatch(result);
     }
 
     @Test
@@ -128,6 +132,8 @@ class RedisSeatOccupancyBitmapBatchConsistencyServiceTest {
 
         assertThat(result.checked()).isZero();
         assertThat(result.reason()).isEqualTo("no active rooms");
+
+        verify(fixture.metrics).recordBatch(result);
     }
 
     @Test
@@ -148,6 +154,8 @@ class RedisSeatOccupancyBitmapBatchConsistencyServiceTest {
 
         assertThat(result.checked()).isZero();
         assertThat(result.reason()).isEqualTo("no enabled slots");
+
+        verify(fixture.metrics).recordBatch(result);
     }
 
     private static RedisSeatOccupancyBitmapConsistencyService.ReconcileResult
@@ -183,11 +191,15 @@ class RedisSeatOccupancyBitmapBatchConsistencyServiceTest {
                 consistencyService =
                 mock(RedisSeatOccupancyBitmapConsistencyService.class);
 
+        private final RedisSeatOccupancyBitmapConsistencyMetrics metrics =
+                mock(RedisSeatOccupancyBitmapConsistencyMetrics.class);
+
         private final RedisSeatOccupancyBitmapBatchConsistencyService service =
                 new RedisSeatOccupancyBitmapBatchConsistencyService(
                         studyRoomMapper,
                         reservationSlotMapper,
-                        consistencyService
+                        consistencyService,
+                        metrics
                 );
     }
 }
