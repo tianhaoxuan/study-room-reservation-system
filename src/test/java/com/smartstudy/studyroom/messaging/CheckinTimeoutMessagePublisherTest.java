@@ -7,6 +7,7 @@ import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.core.MessageProperties;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import java.time.Clock;
@@ -47,19 +48,30 @@ class CheckinTimeoutMessagePublisherTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<MessagePostProcessor> processorCaptor =
                 ArgumentCaptor.forClass(MessagePostProcessor.class);
+        ArgumentCaptor<CorrelationData> correlationCaptor =
+                ArgumentCaptor.forClass(CorrelationData.class);
+
         verify(rabbitTemplate).convertAndSend(
                 eq(RabbitMqConfig.CHECKIN_TIMEOUT_DELAY_EXCHANGE),
                 eq(RabbitMqConfig.CHECKIN_TIMEOUT_DELAY_ROUTING_KEY),
                 eq(new CheckinTimeoutMessage(1001L, deadlineAt)),
-                processorCaptor.capture()
+                processorCaptor.capture(),
+                correlationCaptor.capture()
         );
 
         MessageProperties properties = new MessageProperties();
         Message processed = processorCaptor.getValue()
                 .postProcessMessage(new Message(new byte[0], properties));
 
+        String expectedCorrelationId =
+                "checkin-timeout:1001:" + deadlineAt;
+
         assertThat(processed.getMessageProperties().getExpiration())
                 .isEqualTo("900000");
+        assertThat(processed.getMessageProperties().getMessageId())
+                .isEqualTo(expectedCorrelationId);
+        assertThat(correlationCaptor.getValue().getId())
+                .isEqualTo(expectedCorrelationId);
     }
 
     @Test
@@ -81,7 +93,8 @@ class CheckinTimeoutMessagePublisherTest {
                 any(String.class),
                 any(String.class),
                 any(Object.class),
-                any(MessagePostProcessor.class)
+                any(MessagePostProcessor.class),
+                any(CorrelationData.class)
         );
     }
 
@@ -94,7 +107,8 @@ class CheckinTimeoutMessagePublisherTest {
                         any(String.class),
                         any(String.class),
                         any(Object.class),
-                        any(MessagePostProcessor.class)
+                        any(MessagePostProcessor.class),
+                        any(CorrelationData.class)
                 );
         CheckinTimeoutMessagePublisher publisher =
                 new CheckinTimeoutMessagePublisher(

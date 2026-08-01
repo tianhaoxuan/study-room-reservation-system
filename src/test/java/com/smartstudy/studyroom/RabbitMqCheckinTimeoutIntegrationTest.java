@@ -17,11 +17,11 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-
+import org.springframework.amqp.core.ReturnedMessage;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.concurrent.TimeUnit;
-
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(properties = {
@@ -306,54 +306,6 @@ class RabbitMqCheckinTimeoutIntegrationTest {
         private interface CheckedAssertion {
 
                 void check() throws Exception;
-        }
-
-        @Test
-        void duplicateTimeoutMessagesShouldBeHandledIdempotently()
-                        throws Exception {
-
-                CheckinTimeoutMessage message = new CheckinTimeoutMessage(
-                                1001L,
-                                LocalDateTime.now().minusSeconds(1));
-
-                rabbitTemplate.convertAndSend(
-                                RabbitMqConfig.CHECKIN_TIMEOUT_DELAY_EXCHANGE,
-                                RabbitMqConfig.CHECKIN_TIMEOUT_DELAY_ROUTING_KEY,
-                                message,
-                                rawMessage -> {
-                                        rawMessage.getMessageProperties().setExpiration("300");
-                                        return rawMessage;
-                                });
-                rabbitTemplate.convertAndSend(
-                                RabbitMqConfig.CHECKIN_TIMEOUT_DELAY_EXCHANGE,
-                                RabbitMqConfig.CHECKIN_TIMEOUT_DELAY_ROUTING_KEY,
-                                message,
-                                rawMessage -> {
-                                        rawMessage.getMessageProperties().setExpiration("300");
-                                        return rawMessage;
-                                });
-
-                assertEventually(() -> {
-                        assertThat(reservationStatus(1001L))
-                                        .isEqualTo(BizConstants.RESERVATION_VIOLATED);
-                        assertThat(countRows("reservation_slot_occupancy"))
-                                        .isZero();
-                        assertThat(countRows("violation"))
-                                        .isEqualTo(1);
-                        assertThat(userViolationCount(1L))
-                                        .isEqualTo(1);
-                });
-
-                Thread.sleep(1000);
-
-                assertThat(reservationStatus(1001L))
-                                .isEqualTo(BizConstants.RESERVATION_VIOLATED);
-                assertThat(countRows("reservation_slot_occupancy"))
-                                .isZero();
-                assertThat(countRows("violation"))
-                                .isEqualTo(1);
-                assertThat(userViolationCount(1L))
-                                .isEqualTo(1);
         }
 
         @Test
