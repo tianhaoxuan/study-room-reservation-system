@@ -7,6 +7,7 @@ import java.time.LocalTime;
 public class Reservation {
 
     private Long id;
+    private String requestId;
     private Long userId;
     private Long seatId;
     private Long roomId;
@@ -25,6 +26,14 @@ public class Reservation {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getRequestId() {
+        return requestId;
+    }
+
+    public void setRequestId(String requestId) {
+        this.requestId = requestId;
     }
 
     public Long getUserId() {

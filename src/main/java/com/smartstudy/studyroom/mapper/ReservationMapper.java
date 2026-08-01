@@ -21,6 +21,7 @@ public interface ReservationMapper {
 
     @Insert("""
             INSERT INTO reservation(
+                request_id,
                 user_id,
                 seat_id,
                 room_id,
@@ -31,6 +32,7 @@ public interface ReservationMapper {
                 status
             )
             VALUES(
+                #{requestId},
                 #{userId},
                 #{seatId},
                 #{roomId},
@@ -50,6 +52,19 @@ public interface ReservationMapper {
             WHERE id = #{id}
             """)
     Reservation findById(@Param("id") Long id);
+
+    @Select("""
+            SELECT *
+            FROM reservation
+            WHERE user_id = #{userId}
+              AND request_id = #{requestId}
+            ORDER BY id DESC
+            LIMIT 1
+            """)
+    Reservation findByUserIdAndRequestId(
+            @Param("userId") Long userId,
+            @Param("requestId") String requestId
+    );
 
     @Select("""
             SELECT COUNT(*)
