@@ -26,6 +26,10 @@ public class SeatPreOccupyKey {
         return keyPrefix + ":request:" + requestId.strip();
     }
 
+    public String requestPattern() {
+        return keyPrefix + ":request:*";
+    }
+
     public String forUser(Long userId, LocalDate reservationDate) {
         if (userId == null) {
             throw new IllegalArgumentException("userId must not be null");

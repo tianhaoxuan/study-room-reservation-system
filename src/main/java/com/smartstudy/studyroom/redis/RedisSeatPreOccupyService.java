@@ -2,6 +2,7 @@ package com.smartstudy.studyroom.redis;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -12,7 +13,6 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Objects;
 
 @Service
 public class RedisSeatPreOccupyService {
@@ -95,6 +95,7 @@ public class RedisSeatPreOccupyService {
     private final StringRedisTemplate redisTemplate;
     private final SeatOccupancyBitmapKey bitmapKey;
     private final SeatPreOccupyKey preOccupyKey;
+    private final RedisSeatPreOccupyMetrics metrics;
     private final boolean enabled;
     private final Duration ttl;
 
@@ -107,9 +108,31 @@ public class RedisSeatPreOccupyService {
             @Value("${studyroom.redis.seat-preoccupy.ttl:2m}")
             Duration ttl) {
 
+        this(
+                redisTemplate,
+                bitmapKey,
+                preOccupyKey,
+                null,
+                enabled,
+                ttl
+        );
+    }
+
+    @Autowired
+    public RedisSeatPreOccupyService(
+            StringRedisTemplate redisTemplate,
+            SeatOccupancyBitmapKey bitmapKey,
+            SeatPreOccupyKey preOccupyKey,
+            RedisSeatPreOccupyMetrics metrics,
+            @Value("${studyroom.redis.seat-preoccupy.enabled:true}")
+            boolean enabled,
+            @Value("${studyroom.redis.seat-preoccupy.ttl:2m}")
+            Duration ttl) {
+
         this.redisTemplate = redisTemplate;
         this.bitmapKey = bitmapKey;
         this.preOccupyKey = preOccupyKey;
+        this.metrics = metrics;
         this.enabled = enabled;
         this.ttl = ttl;
     }
@@ -122,57 +145,41 @@ public class RedisSeatPreOccupyService {
             Collection<Long> slotIds,
             Long seatId) {
 
-        if (!enabled) {
-            return SeatPreOccupyResult.of(
-                    SeatPreOccupyStatus.DISABLED,
-                    "Redis seat pre-occupy is disabled"
-            );
-        }
-
-        ValidationResult validation =
-                validate(requestId, userId, roomId,
-                        reservationDate, slotIds, seatId);
-        if (!validation.isValid()) {
-            return SeatPreOccupyResult.of(
-                    SeatPreOccupyStatus.INVALID,
-                    validation.message()
-            );
-        }
-
-        List<Long> orderedSlotIds = normalizeSlotIds(slotIds);
-        List<String> keys =
-                buildKeys(requestId, userId, roomId,
-                        reservationDate, orderedSlotIds);
-        List<String> args =
-                buildPreOccupyArgs(requestId, userId, roomId,
-                        reservationDate, orderedSlotIds, seatId);
-
-        try {
-            String status = redisTemplate.execute(
-                    PRE_OCCUPY_SCRIPT,
-                    keys,
-                    args.toArray()
-            );
-            return toResult(status);
-        } catch (RuntimeException ex) {
-            log.warn(
-                    "Failed to pre-occupy seat by Redis Lua, requestId={}, userId={}, roomId={}, reservationDate={}, slotIds={}, seatId={}",
-                    requestId,
-                    userId,
-                    roomId,
-                    reservationDate,
-                    orderedSlotIds,
-                    seatId,
-                    ex
-            );
-            return SeatPreOccupyResult.of(
-                    SeatPreOccupyStatus.FAILED,
-                    "Redis seat pre-occupy failed"
-            );
-        }
+        SeatPreOccupyResult result =
+                doPreOccupy(
+                        requestId,
+                        userId,
+                        roomId,
+                        reservationDate,
+                        slotIds,
+                        seatId
+                );
+        recordPreOccupy(result);
+        return result;
     }
 
     public SeatPreOccupyResult release(
+            String requestId,
+            Long userId,
+            Long roomId,
+            LocalDate reservationDate,
+            Collection<Long> slotIds,
+            Long seatId) {
+
+        SeatPreOccupyResult result =
+                doRelease(
+                        requestId,
+                        userId,
+                        roomId,
+                        reservationDate,
+                        slotIds,
+                        seatId
+                );
+        recordRelease(result);
+        return result;
+    }
+
+    private SeatPreOccupyResult doPreOccupy(
             String requestId,
             Long userId,
             Long roomId,
@@ -197,13 +204,76 @@ public class RedisSeatPreOccupyService {
             );
         }
 
-        List<Long> orderedSlotIds = normalizeSlotIds(slotIds);
-        List<String> keys =
-                buildKeys(requestId, userId, roomId,
-                        reservationDate, orderedSlotIds);
-        List<String> args =
-                buildReleaseArgs(requestId, userId, roomId,
-                        reservationDate, orderedSlotIds, seatId);
+        SeatPreOccupyPayload payload =
+                SeatPreOccupyPayload.of(
+                        requestId,
+                        userId,
+                        roomId,
+                        reservationDate,
+                        slotIds,
+                        seatId
+                );
+
+        List<String> keys = buildKeys(payload);
+        List<String> args = buildPreOccupyArgs(payload);
+
+        try {
+            String status = redisTemplate.execute(
+                    PRE_OCCUPY_SCRIPT,
+                    keys,
+                    args.toArray()
+            );
+            return toResult(status);
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "Failed to pre-occupy seat by Redis Lua, payload={}",
+                    payload,
+                    ex
+            );
+            return SeatPreOccupyResult.of(
+                    SeatPreOccupyStatus.FAILED,
+                    "Redis seat pre-occupy failed"
+            );
+        }
+    }
+
+    private SeatPreOccupyResult doRelease(
+            String requestId,
+            Long userId,
+            Long roomId,
+            LocalDate reservationDate,
+            Collection<Long> slotIds,
+            Long seatId) {
+
+        if (!enabled) {
+            return SeatPreOccupyResult.of(
+                    SeatPreOccupyStatus.DISABLED,
+                    "Redis seat pre-occupy is disabled"
+            );
+        }
+
+        ValidationResult validation =
+                validate(requestId, userId, roomId,
+                        reservationDate, slotIds, seatId);
+        if (!validation.isValid()) {
+            return SeatPreOccupyResult.of(
+                    SeatPreOccupyStatus.INVALID,
+                    validation.message()
+            );
+        }
+
+        SeatPreOccupyPayload payload =
+                SeatPreOccupyPayload.of(
+                        requestId,
+                        userId,
+                        roomId,
+                        reservationDate,
+                        slotIds,
+                        seatId
+                );
+
+        List<String> keys = buildKeys(payload);
+        List<String> args = buildReleaseArgs(payload);
 
         try {
             String status = redisTemplate.execute(
@@ -214,13 +284,8 @@ public class RedisSeatPreOccupyService {
             return toResult(status);
         } catch (RuntimeException ex) {
             log.warn(
-                    "Failed to release Redis Lua seat pre-occupy, requestId={}, userId={}, roomId={}, reservationDate={}, slotIds={}, seatId={}",
-                    requestId,
-                    userId,
-                    roomId,
-                    reservationDate,
-                    orderedSlotIds,
-                    seatId,
+                    "Failed to release Redis Lua seat pre-occupy, payload={}",
+                    payload,
                     ex
             );
             return SeatPreOccupyResult.of(
@@ -260,7 +325,14 @@ public class RedisSeatPreOccupyService {
         if (slotIds == null || slotIds.isEmpty()) {
             return ValidationResult.invalid("slotIds must not be empty");
         }
-        if (normalizeSlotIds(slotIds).isEmpty()) {
+        if (SeatPreOccupyPayload.of(
+                requestId,
+                userId,
+                roomId,
+                reservationDate,
+                slotIds,
+                seatId
+        ).slotIds().isEmpty()) {
             return ValidationResult.invalid("slotIds must not be empty");
         }
         if (ttl == null || ttl.isZero() || ttl.isNegative()) {
@@ -269,29 +341,18 @@ public class RedisSeatPreOccupyService {
         return ValidationResult.ok();
     }
 
-    private List<Long> normalizeSlotIds(Collection<Long> slotIds) {
-        return slotIds.stream()
-                .filter(Objects::nonNull)
-                .distinct()
-                .sorted()
-                .toList();
-    }
-
-    private List<String> buildKeys(
-            String requestId,
-            Long userId,
-            Long roomId,
-            LocalDate reservationDate,
-            List<Long> slotIds) {
-
+    private List<String> buildKeys(SeatPreOccupyPayload payload) {
         List<String> keys = new ArrayList<>();
-        keys.add(preOccupyKey.forRequest(requestId));
-        keys.add(preOccupyKey.forUser(userId, reservationDate));
+        keys.add(preOccupyKey.forRequest(payload.requestId()));
+        keys.add(preOccupyKey.forUser(
+                payload.userId(),
+                payload.reservationDate()
+        ));
 
-        for (Long slotId : slotIds) {
+        for (Long slotId : payload.slotIds()) {
             keys.add(bitmapKey.forSlot(
-                    roomId,
-                    reservationDate,
+                    payload.roomId(),
+                    payload.reservationDate(),
                     slotId
             ));
         }
@@ -300,27 +361,15 @@ public class RedisSeatPreOccupyService {
     }
 
     private List<String> buildPreOccupyArgs(
-            String requestId,
-            Long userId,
-            Long roomId,
-            LocalDate reservationDate,
-            List<Long> slotIds,
-            Long seatId) {
+            SeatPreOccupyPayload payload) {
 
         List<String> args = new ArrayList<>();
-        args.add(payload(
-                requestId,
-                userId,
-                roomId,
-                reservationDate,
-                slotIds,
-                seatId
-        ));
-        args.add(String.valueOf(seatId));
+        args.add(payload.encode());
+        args.add(String.valueOf(payload.seatId()));
         args.add(String.valueOf(ttl.toSeconds()));
-        args.add(String.valueOf(slotIds.size()));
+        args.add(String.valueOf(payload.slotIds().size()));
 
-        for (Long slotId : slotIds) {
+        for (Long slotId : payload.slotIds()) {
             args.add(String.valueOf(slotId));
         }
 
@@ -328,56 +377,18 @@ public class RedisSeatPreOccupyService {
     }
 
     private List<String> buildReleaseArgs(
-            String requestId,
-            Long userId,
-            Long roomId,
-            LocalDate reservationDate,
-            List<Long> slotIds,
-            Long seatId) {
+            SeatPreOccupyPayload payload) {
 
         List<String> args = new ArrayList<>();
-        args.add(payload(
-                requestId,
-                userId,
-                roomId,
-                reservationDate,
-                slotIds,
-                seatId
-        ));
-        args.add(String.valueOf(seatId));
-        args.add(String.valueOf(slotIds.size()));
+        args.add(payload.encode());
+        args.add(String.valueOf(payload.seatId()));
+        args.add(String.valueOf(payload.slotIds().size()));
 
-        for (Long slotId : slotIds) {
+        for (Long slotId : payload.slotIds()) {
             args.add(String.valueOf(slotId));
         }
 
         return args;
-    }
-
-    private String payload(
-            String requestId,
-            Long userId,
-            Long roomId,
-            LocalDate reservationDate,
-            List<Long> slotIds,
-            Long seatId) {
-
-        return requestId.strip()
-                + "|"
-                + userId
-                + "|"
-                + roomId
-                + "|"
-                + reservationDate
-                + "|"
-                + seatId
-                + "|"
-                + String.join(
-                ",",
-                slotIds.stream()
-                        .map(String::valueOf)
-                        .toList()
-        );
     }
 
     private SeatPreOccupyResult toResult(String status) {
@@ -421,6 +432,18 @@ public class RedisSeatPreOccupyService {
             case INVALID -> "Invalid Redis seat pre-occupy input";
             case FAILED -> "Redis seat pre-occupy failed";
         };
+    }
+
+    private void recordPreOccupy(SeatPreOccupyResult result) {
+        if (metrics != null && result != null) {
+            metrics.recordPreOccupy(result.status());
+        }
+    }
+
+    private void recordRelease(SeatPreOccupyResult result) {
+        if (metrics != null && result != null) {
+            metrics.recordRelease(result.status());
+        }
     }
 
     private static final class ValidationResult {
