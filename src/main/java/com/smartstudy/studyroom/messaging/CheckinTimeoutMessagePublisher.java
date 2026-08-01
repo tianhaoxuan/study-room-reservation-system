@@ -1,6 +1,7 @@
 package com.smartstudy.studyroom.messaging;
 
 import com.smartstudy.studyroom.config.RabbitMqConfig;
+import com.smartstudy.studyroom.service.ReservationTimeoutMessageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpException;
@@ -24,24 +25,35 @@ public class CheckinTimeoutMessagePublisher {
     );
 
     private final RabbitTemplate rabbitTemplate;
+    private final ReservationTimeoutMessageService
+            reservationTimeoutMessageService;
     private final boolean enabled;
     private final Clock clock;
 
     @Autowired
     public CheckinTimeoutMessagePublisher(
             RabbitTemplate rabbitTemplate,
+            ReservationTimeoutMessageService reservationTimeoutMessageService,
             @Value("${studyroom.rabbitmq.checkin-timeout.enabled:false}")
             boolean enabled) {
 
-        this(rabbitTemplate, enabled, Clock.systemDefaultZone());
+        this(
+                rabbitTemplate,
+                reservationTimeoutMessageService,
+                enabled,
+                Clock.systemDefaultZone()
+        );
     }
 
     CheckinTimeoutMessagePublisher(
             RabbitTemplate rabbitTemplate,
+            ReservationTimeoutMessageService reservationTimeoutMessageService,
             boolean enabled,
             Clock clock) {
 
         this.rabbitTemplate = rabbitTemplate;
+        this.reservationTimeoutMessageService =
+                reservationTimeoutMessageService;
         this.enabled = enabled;
         this.clock = clock;
     }
@@ -82,10 +94,17 @@ public class CheckinTimeoutMessagePublisher {
                     },
                     correlationData
             );
+            reservationTimeoutMessageService.markSent(event.messageId());
         } catch (AmqpException e) {
+            reservationTimeoutMessageService.markFailed(
+                    event.messageId(),
+                    e.getMessage()
+            );
             log.warn(
                     "Failed to publish check-in timeout message, " +
-                            "reservationId={}, correlationId={}, reason={}",
+                            "messageId={}, reservationId={}, " +
+                            "correlationId={}, reason={}",
+                    event.messageId(),
                     event.reservationId(),
                     correlationId,
                     e.getMessage()
@@ -95,6 +114,8 @@ public class CheckinTimeoutMessagePublisher {
 
     private String correlationId(CheckinTimeoutScheduledEvent event) {
         return "checkin-timeout:"
+                + event.messageId()
+                + ":"
                 + event.reservationId()
                 + ":"
                 + event.deadlineAt();

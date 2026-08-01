@@ -16,6 +16,7 @@ import com.smartstudy.studyroom.dto.ViolationResponse;
 import com.smartstudy.studyroom.dto.WxLoginRequest;
 import com.smartstudy.studyroom.entity.Reservation;
 import com.smartstudy.studyroom.entity.ReservationSlotOccupancy;
+import com.smartstudy.studyroom.entity.ReservationTimeoutMessage;
 import com.smartstudy.studyroom.entity.Seat;
 import com.smartstudy.studyroom.entity.StudyRoom;
 import com.smartstudy.studyroom.entity.User;
@@ -31,9 +32,10 @@ import com.smartstudy.studyroom.service.AdminReservationService;
 import com.smartstudy.studyroom.service.AuthService;
 import com.smartstudy.studyroom.service.CheckinService;
 import com.smartstudy.studyroom.service.ConfigService;
-import com.smartstudy.studyroom.service.ReservationService;
 import com.smartstudy.studyroom.service.ReservationLifecycleService;
+import com.smartstudy.studyroom.service.ReservationService;
 import com.smartstudy.studyroom.service.ReservationSlotService;
+import com.smartstudy.studyroom.service.ReservationTimeoutMessageService;
 import com.smartstudy.studyroom.service.ReservationTimeoutService;
 import com.smartstudy.studyroom.service.RoomStatsService;
 import com.smartstudy.studyroom.service.TokenService;
@@ -43,8 +45,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 
-import java.time.LocalDateTime;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.Collections;
 import java.util.List;
@@ -201,6 +203,22 @@ class CoreBusinessServiceTest {
                 5L
         );
 
+        LocalDateTime deadlineAt = LocalDateTime.of(
+                request.getReservationDate(),
+                LocalTime.of(8, 15)
+        );
+
+        ReservationTimeoutMessage timeoutMessage =
+                new ReservationTimeoutMessage();
+        timeoutMessage.setId(2001L);
+        timeoutMessage.setReservationId(1001L);
+        timeoutMessage.setDeadlineAt(deadlineAt);
+
+        when(fixture.reservationTimeoutMessageService.createPending(
+                eq(1001L),
+                eq(deadlineAt)
+        )).thenReturn(timeoutMessage);
+
         CreateReservationResponse response =
                 fixture.reservationService.createReservation(
                         1L,
@@ -254,18 +272,20 @@ class CoreBusinessServiceTest {
                             .isEqualTo(request.getReservationDate());
                 });
 
+        verify(fixture.reservationTimeoutMessageService)
+                .createPending(1001L, deadlineAt);
+
         ArgumentCaptor<CheckinTimeoutScheduledEvent> eventCaptor =
                 ArgumentCaptor.forClass(CheckinTimeoutScheduledEvent.class);
         verify(fixture.eventPublisher)
                 .publishEvent(eventCaptor.capture());
+
+        assertThat(eventCaptor.getValue().messageId())
+                .isEqualTo(2001L);
         assertThat(eventCaptor.getValue().reservationId())
                 .isEqualTo(1001L);
         assertThat(eventCaptor.getValue().deadlineAt())
-                .isEqualTo(LocalDateTime.of(
-                        request.getReservationDate(),
-                        LocalTime.of(8, 15)
-                ));
-
+                .isEqualTo(deadlineAt);
     }
 
     @Test
@@ -298,7 +318,6 @@ class CoreBusinessServiceTest {
 
         verify(fixture.reservationSlotOccupancyMapper)
                 .deleteByReservationId(1001L);
-
     }
 
     @Test
@@ -428,7 +447,6 @@ class CoreBusinessServiceTest {
 
         assertThat(response.getStatus())
                 .isEqualTo(BizConstants.RESERVATION_USING);
-
     }
 
     @Test
@@ -471,7 +489,6 @@ class CoreBusinessServiceTest {
 
         verify(fixture.reservationSlotOccupancyMapper)
                 .deleteByReservationId(1001L);
-
     }
 
     @Test
@@ -495,8 +512,8 @@ class CoreBusinessServiceTest {
         assertThat(result).hasSize(1);
     }
 
-        @Test
-        void timeoutTaskMarksViolationBansAndReleasesSlotOccupancies() {
+    @Test
+    void timeoutTaskMarksViolationBansAndReleasesSlotOccupancies() {
         ReservationMapper reservationMapper =
                 mock(ReservationMapper.class);
         ReservationSlotOccupancyMapper reservationSlotOccupancyMapper =
@@ -554,8 +571,7 @@ class CoreBusinessServiceTest {
 
         when(reservationMapper.findByStatus(
                 BizConstants.RESERVATION_PENDING
-        ))
-                .thenReturn(Collections.singletonList(reservation));
+        )).thenReturn(Collections.singletonList(reservation));
 
         when(reservationMapper.updateStatusIfCurrent(
                 1001L,
@@ -576,7 +592,6 @@ class CoreBusinessServiceTest {
         verify(userMapper).banUser(1L);
         verify(reservationSlotOccupancyMapper)
                 .deleteByReservationId(1001L);
-
     }
 
     private static CreateReservationRequest reservationRequest(
@@ -682,6 +697,10 @@ class CoreBusinessServiceTest {
         private final ReservationSlotService reservationSlotService =
                 mock(ReservationSlotService.class);
 
+        private final ReservationTimeoutMessageService
+                reservationTimeoutMessageService =
+                mock(ReservationTimeoutMessageService.class);
+
         private final ApplicationEventPublisher eventPublisher =
                 mock(ApplicationEventPublisher.class);
 
@@ -707,6 +726,7 @@ class CoreBusinessServiceTest {
                         roomStatsService,
                         reservationSlotService,
                         reservationLifecycleService,
+                        reservationTimeoutMessageService,
                         eventPublisher
                 );
     }

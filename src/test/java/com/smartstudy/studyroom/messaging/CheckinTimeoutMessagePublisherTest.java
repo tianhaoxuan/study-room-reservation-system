@@ -1,6 +1,7 @@
 package com.smartstudy.studyroom.messaging;
 
 import com.smartstudy.studyroom.config.RabbitMqConfig;
+import com.smartstudy.studyroom.service.ReservationTimeoutMessageService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.amqp.AmqpException;
@@ -31,19 +32,26 @@ class CheckinTimeoutMessagePublisherTest {
     );
 
     @Test
-    void shouldPublishDelayedMessageAfterTransactionCommitEvent()
+    void shouldPublishDelayedMessageAndMarkOutboxSent()
             throws Exception {
 
         RabbitTemplate rabbitTemplate = mock(RabbitTemplate.class);
+        ReservationTimeoutMessageService messageService =
+                mock(ReservationTimeoutMessageService.class);
         CheckinTimeoutMessagePublisher publisher =
                 new CheckinTimeoutMessagePublisher(
                         rabbitTemplate,
+                        messageService,
                         true,
                         CLOCK
                 );
         LocalDateTime deadlineAt = LocalDateTime.now(CLOCK).plusMinutes(15);
 
-        publisher.publish(new CheckinTimeoutScheduledEvent(1001L, deadlineAt));
+        publisher.publish(new CheckinTimeoutScheduledEvent(
+                2001L,
+                1001L,
+                deadlineAt
+        ));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<MessagePostProcessor> processorCaptor =
@@ -64,7 +72,7 @@ class CheckinTimeoutMessagePublisherTest {
                 .postProcessMessage(new Message(new byte[0], properties));
 
         String expectedCorrelationId =
-                "checkin-timeout:1001:" + deadlineAt;
+                "checkin-timeout:2001:1001:" + deadlineAt;
 
         assertThat(processed.getMessageProperties().getExpiration())
                 .isEqualTo("900000");
@@ -72,19 +80,25 @@ class CheckinTimeoutMessagePublisherTest {
                 .isEqualTo(expectedCorrelationId);
         assertThat(correlationCaptor.getValue().getId())
                 .isEqualTo(expectedCorrelationId);
+
+        verify(messageService).markSent(2001L);
     }
 
     @Test
     void shouldNotPublishWhenDisabled() {
         RabbitTemplate rabbitTemplate = mock(RabbitTemplate.class);
+        ReservationTimeoutMessageService messageService =
+                mock(ReservationTimeoutMessageService.class);
         CheckinTimeoutMessagePublisher publisher =
                 new CheckinTimeoutMessagePublisher(
                         rabbitTemplate,
+                        messageService,
                         false,
                         CLOCK
                 );
 
         publisher.publish(new CheckinTimeoutScheduledEvent(
+                2001L,
                 1001L,
                 LocalDateTime.now(CLOCK).plusMinutes(15)
         ));
@@ -96,11 +110,19 @@ class CheckinTimeoutMessagePublisherTest {
                 any(MessagePostProcessor.class),
                 any(CorrelationData.class)
         );
+        verify(messageService, never()).markSent(any(Long.class));
+        verify(messageService, never()).markFailed(
+                any(Long.class),
+                any(String.class)
+        );
     }
 
     @Test
-    void shouldNotThrowWhenRabbitMqPublishFails() {
+    void shouldMarkOutboxFailedWhenRabbitMqPublishFails() {
         RabbitTemplate rabbitTemplate = mock(RabbitTemplate.class);
+        ReservationTimeoutMessageService messageService =
+                mock(ReservationTimeoutMessageService.class);
+
         doThrow(new AmqpException("connection failed"))
                 .when(rabbitTemplate)
                 .convertAndSend(
@@ -110,16 +132,22 @@ class CheckinTimeoutMessagePublisherTest {
                         any(MessagePostProcessor.class),
                         any(CorrelationData.class)
                 );
+
         CheckinTimeoutMessagePublisher publisher =
                 new CheckinTimeoutMessagePublisher(
                         rabbitTemplate,
+                        messageService,
                         true,
                         CLOCK
                 );
 
         publisher.publish(new CheckinTimeoutScheduledEvent(
+                2001L,
                 1001L,
                 LocalDateTime.now(CLOCK).plusMinutes(15)
         ));
+
+        verify(messageService).markFailed(2001L, "connection failed");
+        verify(messageService, never()).markSent(2001L);
     }
 }
