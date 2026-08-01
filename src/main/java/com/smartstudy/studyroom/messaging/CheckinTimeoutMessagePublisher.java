@@ -1,6 +1,7 @@
 package com.smartstudy.studyroom.messaging;
 
 import com.smartstudy.studyroom.config.RabbitMqConfig;
+import com.smartstudy.studyroom.entity.ReservationTimeoutMessage;
 import com.smartstudy.studyroom.service.ReservationTimeoutMessageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,20 +65,50 @@ public class CheckinTimeoutMessagePublisher {
             return;
         }
 
-        CheckinTimeoutMessage message = new CheckinTimeoutMessage(
+        publishMessage(
+                event.messageId(),
                 event.reservationId(),
                 event.deadlineAt()
+        );
+    }
+
+    public void publishOutboxMessage(
+            ReservationTimeoutMessage timeoutMessage) {
+
+        if (!enabled) {
+            return;
+        }
+
+        publishMessage(
+                timeoutMessage.getId(),
+                timeoutMessage.getReservationId(),
+                timeoutMessage.getDeadlineAt()
+        );
+    }
+
+    private void publishMessage(
+            Long messageId,
+            Long reservationId,
+            LocalDateTime deadlineAt) {
+
+        CheckinTimeoutMessage message = new CheckinTimeoutMessage(
+                reservationId,
+                deadlineAt
         );
 
         long delayMillis = Math.max(
                 0,
                 Duration.between(
                         LocalDateTime.now(clock),
-                        event.deadlineAt()
+                        deadlineAt
                 ).toMillis()
         );
 
-        String correlationId = correlationId(event);
+        String correlationId = correlationId(
+                messageId,
+                reservationId,
+                deadlineAt
+        );
         CorrelationData correlationData = new CorrelationData(correlationId);
 
         try {
@@ -96,27 +127,31 @@ public class CheckinTimeoutMessagePublisher {
             );
         } catch (AmqpException e) {
             reservationTimeoutMessageService.markFailed(
-                    event.messageId(),
+                    messageId,
                     e.getMessage()
             );
             log.warn(
                     "Failed to publish check-in timeout message, " +
                             "messageId={}, reservationId={}, " +
                             "correlationId={}, reason={}",
-                    event.messageId(),
-                    event.reservationId(),
+                    messageId,
+                    reservationId,
                     correlationId,
                     e.getMessage()
             );
         }
     }
 
-    private String correlationId(CheckinTimeoutScheduledEvent event) {
+    private String correlationId(
+            Long messageId,
+            Long reservationId,
+            LocalDateTime deadlineAt) {
+
         return "checkin-timeout:"
-                + event.messageId()
+                + messageId
                 + ":"
-                + event.reservationId()
+                + reservationId
                 + ":"
-                + event.deadlineAt();
+                + deadlineAt;
     }
 }
