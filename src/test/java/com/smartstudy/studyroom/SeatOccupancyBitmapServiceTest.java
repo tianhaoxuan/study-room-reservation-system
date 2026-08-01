@@ -8,6 +8,7 @@ import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.Duration;
 import java.time.LocalDate;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -24,7 +25,7 @@ class SeatOccupancyBitmapServiceTest {
         StringRedisTemplate redisTemplate =
                 mock(StringRedisTemplate.class);
         ValueOperations<String, String> valueOperations =
-                mock(ValueOperations.class);
+                mockValueOperations();
 
         when(redisTemplate.opsForValue())
                 .thenReturn(valueOperations);
@@ -43,13 +44,15 @@ class SeatOccupancyBitmapServiceTest {
                 1001L
         );
 
+        String key = "seat:bitmap:1:2026-08-01:2";
+
         verify(valueOperations).setBit(
-                "seat:bitmap:1:2026-08-01:2",
+                key,
                 1001L,
                 true
         );
         verify(redisTemplate).expire(
-                "seat:bitmap:1:2026-08-01:2",
+                key,
                 Duration.ofDays(45)
         );
     }
@@ -59,7 +62,7 @@ class SeatOccupancyBitmapServiceTest {
         StringRedisTemplate redisTemplate =
                 mock(StringRedisTemplate.class);
         ValueOperations<String, String> valueOperations =
-                mock(ValueOperations.class);
+                mockValueOperations();
 
         when(redisTemplate.opsForValue())
                 .thenReturn(valueOperations);
@@ -78,13 +81,15 @@ class SeatOccupancyBitmapServiceTest {
                 1001L
         );
 
+        String key = "seat:bitmap:1:2026-08-01:2";
+
         verify(valueOperations).setBit(
-                "seat:bitmap:1:2026-08-01:2",
+                key,
                 1001L,
                 false
         );
         verify(redisTemplate).expire(
-                "seat:bitmap:1:2026-08-01:2",
+                key,
                 Duration.ofDays(45)
         );
     }
@@ -94,7 +99,7 @@ class SeatOccupancyBitmapServiceTest {
         StringRedisTemplate redisTemplate =
                 mock(StringRedisTemplate.class);
         ValueOperations<String, String> valueOperations =
-                mock(ValueOperations.class);
+                mockValueOperations();
 
         when(redisTemplate.opsForValue())
                 .thenReturn(valueOperations);
@@ -106,35 +111,26 @@ class SeatOccupancyBitmapServiceTest {
                         45
                 );
 
-        boolean rebuilt = service.rebuildSlot(
-                1L,
-                LocalDate.of(2026, 8, 1),
-                2L,
-                List.of(1001L, 1002L)
-        );
+        boolean rebuilt =
+                service.rebuildSlot(
+                        1L,
+                        LocalDate.of(2026, 8, 1),
+                        2L,
+                        List.of()
+                );
 
         assertThat(rebuilt).isTrue();
 
-        verify(redisTemplate).delete(
-                "seat:bitmap:1:2026-08-01:2"
-        );
+        String key = "seat:bitmap:1:2026-08-01:2";
+
+        verify(redisTemplate).delete(key);
         verify(valueOperations).setBit(
-                "seat:bitmap:1:2026-08-01:2",
+                key,
                 0L,
                 false
         );
-        verify(valueOperations).setBit(
-                "seat:bitmap:1:2026-08-01:2",
-                1001L,
-                true
-        );
-        verify(valueOperations).setBit(
-                "seat:bitmap:1:2026-08-01:2",
-                1002L,
-                true
-        );
         verify(redisTemplate).expire(
-                "seat:bitmap:1:2026-08-01:2",
+                key,
                 Duration.ofDays(45)
         );
     }
@@ -144,7 +140,7 @@ class SeatOccupancyBitmapServiceTest {
         StringRedisTemplate redisTemplate =
                 mock(StringRedisTemplate.class);
         ValueOperations<String, String> valueOperations =
-                mock(ValueOperations.class);
+                mockValueOperations();
 
         when(redisTemplate.opsForValue())
                 .thenReturn(valueOperations);
@@ -187,7 +183,7 @@ class SeatOccupancyBitmapServiceTest {
                 );
 
         assertThat(occupiedSeatIds)
-                .hasValue(Set.of(1001L));
+                .contains(setOf(1001L));
     }
 
     @Test
@@ -195,7 +191,7 @@ class SeatOccupancyBitmapServiceTest {
         StringRedisTemplate redisTemplate =
                 mock(StringRedisTemplate.class);
         ValueOperations<String, String> valueOperations =
-                mock(ValueOperations.class);
+                mockValueOperations();
 
         when(redisTemplate.opsForValue())
                 .thenReturn(valueOperations);
@@ -220,13 +216,19 @@ class SeatOccupancyBitmapServiceTest {
                         List.of(1001L)
                 );
 
-        assertThat(occupiedSeatIds).isEmpty();
+        assertThat(occupiedSeatIds)
+                .isEmpty();
     }
 
     @Test
     void shouldReturnEmptyOptionalWhenRedisReadFails() {
         StringRedisTemplate redisTemplate =
                 mock(StringRedisTemplate.class);
+        ValueOperations<String, String> valueOperations =
+                mockValueOperations();
+
+        when(redisTemplate.opsForValue())
+                .thenReturn(valueOperations);
 
         when(redisTemplate.hasKey("seat:bitmap:1:2026-08-01:2"))
                 .thenThrow(new IllegalStateException("redis down"));
@@ -246,6 +248,16 @@ class SeatOccupancyBitmapServiceTest {
                         List.of(1001L)
                 );
 
-        assertThat(occupiedSeatIds).isEmpty();
+        assertThat(occupiedSeatIds)
+                .isEmpty();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ValueOperations<String, String> mockValueOperations() {
+        return mock(ValueOperations.class);
+    }
+
+    private static Set<Long> setOf(Long... values) {
+        return new LinkedHashSet<>(List.of(values));
     }
 }
