@@ -2,6 +2,7 @@ package com.smartstudy.studyroom.messaging;
 
 import com.smartstudy.studyroom.config.RabbitMqConfig;
 import com.smartstudy.studyroom.entity.ReservationTimeoutMessage;
+import com.smartstudy.studyroom.metrics.StudyRoomBusinessMetrics;
 import com.smartstudy.studyroom.service.ReservationTimeoutMessageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,6 +10,7 @@ import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -30,19 +32,22 @@ public class CheckinTimeoutMessagePublisher {
             reservationTimeoutMessageService;
     private final boolean enabled;
     private final Clock clock;
+    private final StudyRoomBusinessMetrics metrics;
 
     @Autowired
     public CheckinTimeoutMessagePublisher(
             RabbitTemplate rabbitTemplate,
             ReservationTimeoutMessageService reservationTimeoutMessageService,
             @Value("${studyroom.rabbitmq.checkin-timeout.enabled:false}")
-            boolean enabled) {
+            boolean enabled,
+            ObjectProvider<StudyRoomBusinessMetrics> metrics) {
 
         this(
                 rabbitTemplate,
                 reservationTimeoutMessageService,
                 enabled,
-                Clock.systemDefaultZone()
+                Clock.systemDefaultZone(),
+                metrics.getIfAvailable()
         );
     }
 
@@ -52,16 +57,34 @@ public class CheckinTimeoutMessagePublisher {
             boolean enabled,
             Clock clock) {
 
+        this(
+                rabbitTemplate,
+                reservationTimeoutMessageService,
+                enabled,
+                clock,
+                null
+        );
+    }
+
+    CheckinTimeoutMessagePublisher(
+            RabbitTemplate rabbitTemplate,
+            ReservationTimeoutMessageService reservationTimeoutMessageService,
+            boolean enabled,
+            Clock clock,
+            StudyRoomBusinessMetrics metrics) {
+
         this.rabbitTemplate = rabbitTemplate;
         this.reservationTimeoutMessageService =
                 reservationTimeoutMessageService;
         this.enabled = enabled;
         this.clock = clock;
+        this.metrics = metrics;
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void publish(CheckinTimeoutScheduledEvent event) {
         if (!enabled) {
+            recordPublish("transaction_event", "disabled");
             return;
         }
 
@@ -76,6 +99,7 @@ public class CheckinTimeoutMessagePublisher {
             ReservationTimeoutMessage timeoutMessage) {
 
         if (!enabled) {
+            recordPublish("outbox_retry", "disabled");
             return;
         }
 
@@ -126,7 +150,9 @@ public class CheckinTimeoutMessagePublisher {
                     },
                     correlationData
             );
+            recordPublish("rabbit_template", "submitted");
         } catch (AmqpException e) {
+            recordPublish("rabbit_template", "failed");
             reservationTimeoutMessageService.markFailed(
                     messageId,
                     e.getMessage()
@@ -154,5 +180,11 @@ public class CheckinTimeoutMessagePublisher {
                 + reservationId
                 + ":"
                 + deadlineAt;
+    }
+
+    private void recordPublish(String source, String result) {
+        if (metrics != null) {
+            metrics.recordRabbitMqOutboxPublish(source, result);
+        }
     }
 }

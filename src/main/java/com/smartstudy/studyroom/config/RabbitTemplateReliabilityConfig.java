@@ -1,11 +1,14 @@
 package com.smartstudy.studyroom.config;
 
+import com.smartstudy.studyroom.metrics.StudyRoomBusinessMetrics;
 import com.smartstudy.studyroom.service.ReservationTimeoutMessageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.ReturnedMessage;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
@@ -22,6 +25,19 @@ public class RabbitTemplateReliabilityConfig {
     private final RabbitTemplate rabbitTemplate;
     private final ReservationTimeoutMessageService
             reservationTimeoutMessageService;
+    private final StudyRoomBusinessMetrics metrics;
+
+    @Autowired
+    public RabbitTemplateReliabilityConfig(
+            RabbitTemplate rabbitTemplate,
+            ReservationTimeoutMessageService reservationTimeoutMessageService,
+            ObjectProvider<StudyRoomBusinessMetrics> metrics) {
+
+        this.rabbitTemplate = rabbitTemplate;
+        this.reservationTimeoutMessageService =
+                reservationTimeoutMessageService;
+        this.metrics = metrics.getIfAvailable();
+    }
 
     public RabbitTemplateReliabilityConfig(
             RabbitTemplate rabbitTemplate,
@@ -30,6 +46,7 @@ public class RabbitTemplateReliabilityConfig {
         this.rabbitTemplate = rabbitTemplate;
         this.reservationTimeoutMessageService =
                 reservationTimeoutMessageService;
+        this.metrics = null;
     }
 
     @PostConstruct
@@ -50,6 +67,7 @@ public class RabbitTemplateReliabilityConfig {
         Long messageId = parseMessageId(correlationId);
 
         if (messageId == null) {
+            recordConfirm("invalid");
             log.warn(
                     "RabbitMQ confirm has invalid correlationId={}, ack={}, cause={}",
                     correlationId,
@@ -60,6 +78,7 @@ public class RabbitTemplateReliabilityConfig {
         }
 
         if (ack) {
+            recordConfirm("ack");
             reservationTimeoutMessageService.markSent(messageId);
             log.debug(
                     "RabbitMQ message confirmed, messageId={}, correlationId={}",
@@ -69,6 +88,7 @@ public class RabbitTemplateReliabilityConfig {
             return;
         }
 
+        recordConfirm("nack");
         reservationTimeoutMessageService.markFailed(messageId, cause);
         log.warn(
                 "RabbitMQ message was not confirmed, messageId={}, " +
@@ -95,6 +115,7 @@ public class RabbitTemplateReliabilityConfig {
                 + returnedMessage.getRoutingKey();
 
         if (messageId == null) {
+            recordReturn("invalid");
             log.warn(
                     "RabbitMQ message returned with invalid messageId={}, {}",
                     messageIdText,
@@ -103,6 +124,7 @@ public class RabbitTemplateReliabilityConfig {
             return;
         }
 
+        recordReturn("failed");
         reservationTimeoutMessageService.markFailed(messageId, reason);
         log.warn(
                 "RabbitMQ message returned, messageId={}, exchange={}, " +
@@ -133,6 +155,18 @@ public class RabbitTemplateReliabilityConfig {
             return Long.valueOf(payload.substring(0, separatorIndex));
         } catch (NumberFormatException e) {
             return null;
+        }
+    }
+
+    private void recordConfirm(String result) {
+        if (metrics != null) {
+            metrics.recordRabbitMqConfirm(result);
+        }
+    }
+
+    private void recordReturn(String result) {
+        if (metrics != null) {
+            metrics.recordRabbitMqReturn(result);
         }
     }
 }
