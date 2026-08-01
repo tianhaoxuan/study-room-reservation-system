@@ -11,6 +11,7 @@ import com.smartstudy.studyroom.exception.BusinessException;
 import com.smartstudy.studyroom.mapper.SeatAvailabilityMapper;
 import com.smartstudy.studyroom.mapper.SeatMapper;
 import com.smartstudy.studyroom.mapper.StudyRoomMapper;
+import com.smartstudy.studyroom.redis.RedisSeatOccupancyBitmapRebuildService;
 import com.smartstudy.studyroom.redis.SeatOccupancyBitmapService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,7 @@ import java.time.LocalTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 @Service
@@ -30,6 +32,8 @@ public class SeatAvailabilityService {
     private final SeatAvailabilityMapper seatAvailabilityMapper;
     private final ReservationSlotService reservationSlotService;
     private final SeatOccupancyBitmapService bitmapService;
+    private final RedisSeatOccupancyBitmapRebuildService
+            bitmapRebuildService;
     private final boolean redisProjectionEnabled;
 
     public SeatAvailabilityService(
@@ -38,6 +42,7 @@ public class SeatAvailabilityService {
             SeatAvailabilityMapper seatAvailabilityMapper,
             ReservationSlotService reservationSlotService,
             SeatOccupancyBitmapService bitmapService,
+            RedisSeatOccupancyBitmapRebuildService bitmapRebuildService,
             @Value("${studyroom.redis.seat-occupancy.enabled:true}")
             boolean redisProjectionEnabled) {
 
@@ -46,6 +51,7 @@ public class SeatAvailabilityService {
         this.seatAvailabilityMapper = seatAvailabilityMapper;
         this.reservationSlotService = reservationSlotService;
         this.bitmapService = bitmapService;
+        this.bitmapRebuildService = bitmapRebuildService;
         this.redisProjectionEnabled = redisProjectionEnabled;
     }
 
@@ -132,24 +138,51 @@ public class SeatAvailabilityService {
             ReservationSlotRange slotRange,
             List<Seat> seats) {
 
-        if (redisProjectionEnabled) {
-            List<Long> seatIds =
-                    seats.stream()
-                            .map(Seat::getId)
-                            .toList();
+        if (!redisProjectionEnabled) {
+            return queryMysqlStatusBySeat(
+                    roomId,
+                    reservationDate,
+                    slotRange
+            );
+        }
 
-            return bitmapService.findOccupiedSeatIds(
+        List<Long> seatIds =
+                seats.stream()
+                        .map(Seat::getId)
+                        .toList();
+
+        Optional<Set<Long>> redisOccupiedSeatIds =
+                bitmapService.findOccupiedSeatIds(
+                        roomId,
+                        reservationDate,
+                        slotRange.slotIds(),
+                        seatIds
+                );
+
+        if (redisOccupiedSeatIds.isPresent()) {
+            return reservedStatusBySeat(redisOccupiedSeatIds.get());
+        }
+
+        boolean rebuilt = bitmapRebuildService.rebuild(
+                roomId,
+                reservationDate,
+                slotRange.slotIds()
+        );
+
+        if (rebuilt) {
+            Optional<Set<Long>> rebuiltOccupiedSeatIds =
+                    bitmapService.findOccupiedSeatIds(
                             roomId,
                             reservationDate,
                             slotRange.slotIds(),
                             seatIds
-                    )
-                    .map(this::reservedStatusBySeat)
-                    .orElseGet(() -> queryMysqlStatusBySeat(
-                            roomId,
-                            reservationDate,
-                            slotRange
-                    ));
+                    );
+
+            if (rebuiltOccupiedSeatIds.isPresent()) {
+                return reservedStatusBySeat(
+                        rebuiltOccupiedSeatIds.get()
+                );
+            }
         }
 
         return queryMysqlStatusBySeat(
