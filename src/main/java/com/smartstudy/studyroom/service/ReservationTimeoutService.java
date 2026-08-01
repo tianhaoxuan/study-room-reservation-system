@@ -39,38 +39,14 @@ public class ReservationTimeoutService {
 
     @Transactional
     public int releaseTimeoutReservations() {
-        int limitMinutes = configService.getIntConfig(
-                BizConstants.CONFIG_CHECKIN_LIMIT_MINUTES,
-                15
-        );
-        int violationLimit = configService.getIntConfig(
-                BizConstants.CONFIG_VIOLATION_LIMIT,
-                3
-        );
         LocalDateTime now = LocalDateTime.now();
 
-        List<Reservation> pendingReservations =
-                reservationMapper.findByStatus(
-                        ReservationStatus.PENDING_CHECKIN.code()
-                );
+        int handledNoShow =
+                releaseCheckinTimeoutReservations(now);
+        int handledCompleted =
+                completeExpiredInUseReservations(now);
 
-        int handled = 0;
-        for (Reservation reservation : pendingReservations) {
-            LocalDateTime deadline = LocalDateTime.of(
-                    reservation.getReservationDate(),
-                    reservation.getStartTime()
-            ).plusMinutes(limitMinutes);
-
-            if (!now.isAfter(deadline)) {
-                continue;
-            }
-
-            if (handleTimeoutReservation(reservation, violationLimit)) {
-                handled++;
-            }
-        }
-
-        return handled;
+        return handledNoShow + handledCompleted;
     }
 
     @Transactional
@@ -98,6 +74,72 @@ public class ReservationTimeoutService {
         return handleTimeoutReservation(reservation, violationLimit);
     }
 
+    private int releaseCheckinTimeoutReservations(LocalDateTime now) {
+        int limitMinutes = configService.getIntConfig(
+                BizConstants.CONFIG_CHECKIN_LIMIT_MINUTES,
+                15
+        );
+        int violationLimit = configService.getIntConfig(
+                BizConstants.CONFIG_VIOLATION_LIMIT,
+                3
+        );
+
+        int handled = 0;
+        for (Reservation reservation : reservationsByStatus(
+                ReservationStatus.PENDING_CHECKIN
+        )) {
+            LocalDateTime deadline = LocalDateTime.of(
+                    reservation.getReservationDate(),
+                    reservation.getStartTime()
+            ).plusMinutes(limitMinutes);
+
+            if (!now.isAfter(deadline)) {
+                continue;
+            }
+
+            if (handleTimeoutReservation(reservation, violationLimit)) {
+                handled++;
+            }
+        }
+
+        return handled;
+    }
+
+    private int completeExpiredInUseReservations(LocalDateTime now) {
+        int handled = 0;
+
+        for (Reservation reservation : reservationsByStatus(
+                ReservationStatus.IN_USE
+        )) {
+            LocalDateTime endAt = LocalDateTime.of(
+                    reservation.getReservationDate(),
+                    reservation.getEndTime()
+            );
+
+            if (now.isBefore(endAt)) {
+                continue;
+            }
+
+            if (reservationLifecycleService.completeExpiredInUse(
+                    reservation,
+                    now
+            )) {
+                handled++;
+            }
+        }
+
+        return handled;
+    }
+
+    private List<Reservation> reservationsByStatus(
+            ReservationStatus status) {
+
+        List<Reservation> reservations =
+                reservationMapper.findByStatus(status.code());
+
+        return reservations == null ? List.of() : reservations;
+    }
+
     private boolean handleTimeoutReservation(
             Reservation reservation,
             int violationLimit) {
@@ -112,8 +154,8 @@ public class ReservationTimeoutService {
         violation.setViolationType(
                 BizConstants.VIOLATION_TIMEOUT_CHECKIN
         );
-        violation.setReason("\u8d85\u65f6\u672a\u7b7e\u5230");
-        violation.setHandleResult("\u8bb0\u5f55\u8fdd\u89c4\u4e00\u6b21");
+        violation.setReason("超时未签到");
+        violation.setHandleResult("记录违规一次");
         violationMapper.insert(violation);
 
         userMapper.increaseViolation(reservation.getUserId());
