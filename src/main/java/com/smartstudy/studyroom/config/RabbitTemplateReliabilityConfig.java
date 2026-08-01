@@ -1,5 +1,6 @@
 package com.smartstudy.studyroom.config;
 
+import com.smartstudy.studyroom.service.ReservationTimeoutMessageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.ReturnedMessage;
@@ -16,10 +17,19 @@ public class RabbitTemplateReliabilityConfig {
             RabbitTemplateReliabilityConfig.class
     );
 
-    private final RabbitTemplate rabbitTemplate;
+    private static final String CHECKIN_TIMEOUT_PREFIX = "checkin-timeout:";
 
-    public RabbitTemplateReliabilityConfig(RabbitTemplate rabbitTemplate) {
+    private final RabbitTemplate rabbitTemplate;
+    private final ReservationTimeoutMessageService
+            reservationTimeoutMessageService;
+
+    public RabbitTemplateReliabilityConfig(
+            RabbitTemplate rabbitTemplate,
+            ReservationTimeoutMessageService reservationTimeoutMessageService) {
+
         this.rabbitTemplate = rabbitTemplate;
+        this.reservationTimeoutMessageService =
+                reservationTimeoutMessageService;
     }
 
     @PostConstruct
@@ -37,30 +47,92 @@ public class RabbitTemplateReliabilityConfig {
         String correlationId = correlationData == null
                 ? null
                 : correlationData.getId();
+        Long messageId = parseMessageId(correlationId);
+
+        if (messageId == null) {
+            log.warn(
+                    "RabbitMQ confirm has invalid correlationId={}, ack={}, cause={}",
+                    correlationId,
+                    ack,
+                    cause
+            );
+            return;
+        }
 
         if (ack) {
+            reservationTimeoutMessageService.markSent(messageId);
             log.debug(
-                    "RabbitMQ message confirmed, correlationId={}",
+                    "RabbitMQ message confirmed, messageId={}, correlationId={}",
+                    messageId,
                     correlationId
             );
             return;
         }
 
+        reservationTimeoutMessageService.markFailed(messageId, cause);
         log.warn(
-                "RabbitMQ message was not confirmed, correlationId={}, cause={}",
+                "RabbitMQ message was not confirmed, messageId={}, " +
+                        "correlationId={}, cause={}",
+                messageId,
                 correlationId,
                 cause
         );
     }
 
     private void handleReturned(ReturnedMessage returnedMessage) {
+        String messageIdText = returnedMessage.getMessage()
+                .getMessageProperties()
+                .getMessageId();
+        Long messageId = parseMessageId(messageIdText);
+
+        String reason = "returned: replyCode="
+                + returnedMessage.getReplyCode()
+                + ", replyText="
+                + returnedMessage.getReplyText()
+                + ", exchange="
+                + returnedMessage.getExchange()
+                + ", routingKey="
+                + returnedMessage.getRoutingKey();
+
+        if (messageId == null) {
+            log.warn(
+                    "RabbitMQ message returned with invalid messageId={}, {}",
+                    messageIdText,
+                    reason
+            );
+            return;
+        }
+
+        reservationTimeoutMessageService.markFailed(messageId, reason);
         log.warn(
-                "RabbitMQ message returned, exchange={}, routingKey={}, " +
-                        "replyCode={}, replyText={}",
+                "RabbitMQ message returned, messageId={}, exchange={}, " +
+                        "routingKey={}, replyCode={}, replyText={}",
+                messageId,
                 returnedMessage.getExchange(),
                 returnedMessage.getRoutingKey(),
                 returnedMessage.getReplyCode(),
                 returnedMessage.getReplyText()
         );
+    }
+
+    private Long parseMessageId(String correlationId) {
+        if (correlationId == null
+                || !correlationId.startsWith(CHECKIN_TIMEOUT_PREFIX)) {
+            return null;
+        }
+
+        String payload = correlationId.substring(
+                CHECKIN_TIMEOUT_PREFIX.length()
+        );
+        int separatorIndex = payload.indexOf(':');
+        if (separatorIndex < 0) {
+            return null;
+        }
+
+        try {
+            return Long.valueOf(payload.substring(0, separatorIndex));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

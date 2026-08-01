@@ -94,7 +94,6 @@ public class CheckinTimeoutMessagePublisher {
                     },
                     correlationData
             );
-            reservationTimeoutMessageService.markSent(event.messageId());
         } catch (AmqpException e) {
             reservationTimeoutMessageService.markFailed(
                     event.messageId(),
