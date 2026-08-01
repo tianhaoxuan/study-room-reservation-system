@@ -51,6 +51,7 @@ studyroom:
     checkin-timeout:
       enabled: ${STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_ENABLED:false}
       listener-auto-startup: ${STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_LISTENER_AUTO_STARTUP:false}
+      dead-letter-listener-auto-startup: ${STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_DEAD_LETTER_LISTENER_AUTO_STARTUP:false}
     outbox-retry:
       enabled: ${STUDYROOM_RABBITMQ_OUTBOX_RETRY_ENABLED:true}
       fixed-delay-ms: ${STUDYROOM_RABBITMQ_OUTBOX_RETRY_FIXED_DELAY_MS:60000}

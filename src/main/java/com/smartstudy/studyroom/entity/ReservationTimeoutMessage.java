@@ -13,6 +13,7 @@ public class ReservationTimeoutMessage {
     private String lastError;
     private LocalDateTime sentTime;
     private LocalDateTime consumedTime;
+    private LocalDateTime deadLetterTime;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 
@@ -86,6 +87,14 @@ public class ReservationTimeoutMessage {
 
     public void setConsumedTime(LocalDateTime consumedTime) {
         this.consumedTime = consumedTime;
+    }
+
+    public LocalDateTime getDeadLetterTime() {
+        return deadLetterTime;
+    }
+
+    public void setDeadLetterTime(LocalDateTime deadLetterTime) {
+        this.deadLetterTime = deadLetterTime;
     }
 
     public LocalDateTime getCreateTime() {

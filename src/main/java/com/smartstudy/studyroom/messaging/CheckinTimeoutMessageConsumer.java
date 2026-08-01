@@ -33,6 +33,7 @@ public class CheckinTimeoutMessageConsumer {
     }
 
     @RabbitListener(
+            id = RabbitMqConfig.CHECKIN_TIMEOUT_LISTENER_ID,
             queues = RabbitMqConfig.CHECKIN_TIMEOUT_QUEUE,
             autoStartup = "${studyroom.rabbitmq.checkin-timeout.listener-auto-startup:false}"
     )

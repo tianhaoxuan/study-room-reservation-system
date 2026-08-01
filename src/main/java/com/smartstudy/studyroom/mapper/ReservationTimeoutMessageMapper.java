@@ -54,13 +54,18 @@ public interface ReservationTimeoutMessageMapper {
                 next_retry_time = #{nextRetryTime},
                 last_error = #{lastError}
             WHERE id = #{id}
-              AND status NOT IN (#{sentStatus}, #{consumedStatus})
+              AND status NOT IN (
+                    #{sentStatus},
+                    #{consumedStatus},
+                    #{deadLetterStatus}
+              )
             """)
     int markFailed(
             @Param("id") Long id,
             @Param("failedStatus") Integer failedStatus,
             @Param("sentStatus") Integer sentStatus,
             @Param("consumedStatus") Integer consumedStatus,
+            @Param("deadLetterStatus") Integer deadLetterStatus,
             @Param("nextRetryTime") LocalDateTime nextRetryTime,
             @Param("lastError") String lastError
     );
@@ -80,6 +85,24 @@ public interface ReservationTimeoutMessageMapper {
             @Param("failedStatus") Integer failedStatus,
             @Param("sentStatus") Integer sentStatus,
             @Param("consumedStatus") Integer consumedStatus
+    );
+
+    @Update("""
+            UPDATE reservation_timeout_message
+            SET status = #{deadLetterStatus},
+                dead_letter_time = NOW(),
+                next_retry_time = NULL,
+                last_error = #{lastError}
+            WHERE id = #{id}
+              AND status IN (#{pendingStatus}, #{failedStatus}, #{sentStatus})
+            """)
+    int markDeadLetter(
+            @Param("id") Long id,
+            @Param("pendingStatus") Integer pendingStatus,
+            @Param("failedStatus") Integer failedStatus,
+            @Param("sentStatus") Integer sentStatus,
+            @Param("deadLetterStatus") Integer deadLetterStatus,
+            @Param("lastError") String lastError
     );
 
     @Select("""
