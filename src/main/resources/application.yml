@@ -47,6 +47,11 @@ studyroom:
   auth:
     token-secret: ${STUDYROOM_TOKEN_SECRET:dev-only-change-me-study-room-token-secret}
     token-ttl-seconds: ${STUDYROOM_TOKEN_TTL_SECONDS:86400}
+  timeout-scan:
+    enabled: ${STUDYROOM_TIMEOUT_SCAN_ENABLED:true}
+    fixed-delay-ms: ${STUDYROOM_TIMEOUT_SCAN_FIXED_DELAY_MS:60000}
+    batch-size: ${STUDYROOM_TIMEOUT_SCAN_BATCH_SIZE:100}
+    look-back: ${STUDYROOM_TIMEOUT_SCAN_LOOK_BACK:24h}
   rabbitmq:
     checkin-timeout:
       enabled: ${STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_ENABLED:false}
