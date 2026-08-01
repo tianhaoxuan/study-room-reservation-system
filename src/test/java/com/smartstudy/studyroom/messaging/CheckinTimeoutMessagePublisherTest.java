@@ -32,7 +32,7 @@ class CheckinTimeoutMessagePublisherTest {
     );
 
     @Test
-    void shouldPublishDelayedMessageAndMarkOutboxSent()
+    void shouldPublishDelayedMessageWithCorrelationData()
             throws Exception {
 
         RabbitTemplate rabbitTemplate = mock(RabbitTemplate.class);
@@ -81,7 +81,11 @@ class CheckinTimeoutMessagePublisherTest {
         assertThat(correlationCaptor.getValue().getId())
                 .isEqualTo(expectedCorrelationId);
 
-        verify(messageService).markSent(2001L);
+        verify(messageService, never()).markSent(any(Long.class));
+        verify(messageService, never()).markFailed(
+                any(Long.class),
+                any(String.class)
+        );
     }
 
     @Test
@@ -118,7 +122,7 @@ class CheckinTimeoutMessagePublisherTest {
     }
 
     @Test
-    void shouldMarkOutboxFailedWhenRabbitMqPublishFails() {
+    void shouldMarkOutboxFailedWhenRabbitMqPublishThrowsSynchronously() {
         RabbitTemplate rabbitTemplate = mock(RabbitTemplate.class);
         ReservationTimeoutMessageService messageService =
                 mock(ReservationTimeoutMessageService.class);
