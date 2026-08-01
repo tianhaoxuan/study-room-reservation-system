@@ -4,6 +4,7 @@ import com.smartstudy.studyroom.config.RabbitMqConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -64,6 +65,9 @@ public class CheckinTimeoutMessagePublisher {
                 ).toMillis()
         );
 
+        String correlationId = correlationId(event);
+        CorrelationData correlationData = new CorrelationData(correlationId);
+
         try {
             rabbitTemplate.convertAndSend(
                     RabbitMqConfig.CHECKIN_TIMEOUT_DELAY_EXCHANGE,
@@ -72,16 +76,27 @@ public class CheckinTimeoutMessagePublisher {
                     rabbitMessage -> {
                         rabbitMessage.getMessageProperties()
                                 .setExpiration(String.valueOf(delayMillis));
+                        rabbitMessage.getMessageProperties()
+                                .setMessageId(correlationId);
                         return rabbitMessage;
-                    }
+                    },
+                    correlationData
             );
         } catch (AmqpException e) {
             log.warn(
                     "Failed to publish check-in timeout message, " +
-                            "reservationId={}, reason={}",
+                            "reservationId={}, correlationId={}, reason={}",
                     event.reservationId(),
+                    correlationId,
                     e.getMessage()
             );
         }
+    }
+
+    private String correlationId(CheckinTimeoutScheduledEvent event) {
+        return "checkin-timeout:"
+                + event.reservationId()
+                + ":"
+                + event.deadlineAt();
     }
 }
