@@ -3,15 +3,18 @@ package com.smartstudy.studyroom;
 import com.smartstudy.studyroom.common.BizConstants;
 import com.smartstudy.studyroom.common.StatusCode;
 import com.smartstudy.studyroom.entity.Reservation;
+import com.smartstudy.studyroom.entity.ReservationSlotOccupancy;
 import com.smartstudy.studyroom.exception.BusinessException;
 import com.smartstudy.studyroom.mapper.ReservationMapper;
 import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
+import com.smartstudy.studyroom.redis.ReservationSeatBitmapProjectionService;
 import com.smartstudy.studyroom.service.ReservationLifecycleService;
 import com.smartstudy.studyroom.service.RoomStatsService;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -28,6 +31,8 @@ class ReservationLifecycleServiceTest {
         Reservation reservation = reservation(
                 BizConstants.RESERVATION_USING
         );
+        List<ReservationSlotOccupancy> occupancies =
+                List.of(occupancy(2L), occupancy(3L));
 
         when(fixture.reservationMapper.updateStatusIfCurrentIn(
                 reservation.getId(),
@@ -38,10 +43,16 @@ class ReservationLifecycleServiceTest {
                 BizConstants.RESERVATION_CANCELED
         )).thenReturn(1);
 
+        when(fixture.occupancyMapper.findByReservationId(
+                reservation.getId()
+        )).thenReturn(occupancies);
+
         fixture.service.cancelByAdmin(reservation);
 
         verify(fixture.occupancyMapper)
                 .deleteByReservationId(reservation.getId());
+        verify(fixture.bitmapProjectionService)
+                .projectReleasedAfterCommit(occupancies);
         verify(fixture.roomStatsService)
                 .refreshRoomSeatStats(reservation.getRoomId());
     }
@@ -64,6 +75,8 @@ class ReservationLifecycleServiceTest {
         assertThat(changed).isFalse();
         verify(fixture.occupancyMapper, never())
                 .deleteByReservationId(reservation.getId());
+        verify(fixture.bitmapProjectionService, never())
+                .projectReleasedAfterCommit(java.util.List.of());
         verify(fixture.roomStatsService, never())
                 .refreshRoomSeatStats(reservation.getRoomId());
     }
@@ -86,6 +99,8 @@ class ReservationLifecycleServiceTest {
         assertThat(exception.getCode()).isEqualTo(StatusCode.PARAM_ERROR);
         verify(fixture.occupancyMapper, never())
                 .deleteByReservationId(reservation.getId());
+        verify(fixture.bitmapProjectionService, never())
+                .projectReleasedAfterCommit(java.util.List.of());
     }
 
     private static Reservation reservation(int status) {
@@ -101,6 +116,18 @@ class ReservationLifecycleServiceTest {
         return reservation;
     }
 
+    private static ReservationSlotOccupancy occupancy(Long slotId) {
+        ReservationSlotOccupancy occupancy =
+                new ReservationSlotOccupancy();
+        occupancy.setReservationId(1001L);
+        occupancy.setUserId(1L);
+        occupancy.setSeatId(2L);
+        occupancy.setRoomId(3L);
+        occupancy.setReservationDate(LocalDate.now());
+        occupancy.setSlotId(slotId);
+        return occupancy;
+    }
+
     private static class Fixture {
 
         private final ReservationMapper reservationMapper =
@@ -112,11 +139,16 @@ class ReservationLifecycleServiceTest {
         private final RoomStatsService roomStatsService =
                 mock(RoomStatsService.class);
 
+        private final ReservationSeatBitmapProjectionService
+                bitmapProjectionService =
+                mock(ReservationSeatBitmapProjectionService.class);
+
         private final ReservationLifecycleService service =
                 new ReservationLifecycleService(
                         reservationMapper,
                         occupancyMapper,
-                        roomStatsService
+                        roomStatsService,
+                        bitmapProjectionService
                 );
     }
 }

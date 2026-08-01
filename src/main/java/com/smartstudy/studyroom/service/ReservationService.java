@@ -20,6 +20,7 @@ import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
 import com.smartstudy.studyroom.mapper.SeatMapper;
 import com.smartstudy.studyroom.mapper.StudyRoomMapper;
 import com.smartstudy.studyroom.messaging.CheckinTimeoutScheduledEvent;
+import com.smartstudy.studyroom.redis.ReservationSeatBitmapProjectionService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -45,6 +46,8 @@ public class ReservationService {
     private final ReservationLifecycleService reservationLifecycleService;
     private final ReservationTimeoutMessageService
             reservationTimeoutMessageService;
+    private final ReservationSeatBitmapProjectionService
+            bitmapProjectionService;
     private final ApplicationEventPublisher eventPublisher;
 
     public ReservationService(
@@ -58,10 +61,12 @@ public class ReservationService {
             ReservationSlotService reservationSlotService,
             ReservationLifecycleService reservationLifecycleService,
             ReservationTimeoutMessageService reservationTimeoutMessageService,
+            ReservationSeatBitmapProjectionService bitmapProjectionService,
             ApplicationEventPublisher eventPublisher) {
 
         this.reservationMapper = reservationMapper;
-        this.reservationSlotOccupancyMapper = reservationSlotOccupancyMapper;
+        this.reservationSlotOccupancyMapper =
+                reservationSlotOccupancyMapper;
         this.seatMapper = seatMapper;
         this.studyRoomMapper = studyRoomMapper;
         this.userService = userService;
@@ -71,6 +76,7 @@ public class ReservationService {
         this.reservationLifecycleService = reservationLifecycleService;
         this.reservationTimeoutMessageService =
                 reservationTimeoutMessageService;
+        this.bitmapProjectionService = bitmapProjectionService;
         this.eventPublisher = eventPublisher;
     }
 
@@ -221,10 +227,16 @@ public class ReservationService {
         );
 
         reservationMapper.insert(reservation);
-        createSlotOccupancies(
-                reservation,
-                userId,
-                slotRange.slotIds()
+
+        List<ReservationSlotOccupancy> occupancies =
+                createSlotOccupancies(
+                        reservation,
+                        userId,
+                        slotRange.slotIds()
+                );
+
+        bitmapProjectionService.projectOccupiedAfterCommit(
+                occupancies
         );
 
         int checkinLimitMinutes = configService.getIntConfig(
@@ -333,7 +345,7 @@ public class ReservationService {
         return reservation;
     }
 
-    private void createSlotOccupancies(
+    private List<ReservationSlotOccupancy> createSlotOccupancies(
             Reservation reservation,
             Long userId,
             List<Long> slotIds) {
@@ -363,6 +375,7 @@ public class ReservationService {
 
         try {
             reservationSlotOccupancyMapper.batchInsert(occupancies);
+            return occupancies;
         } catch (DuplicateKeyException e) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,

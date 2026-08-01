@@ -9,15 +9,21 @@ spring:
     password: ${DB_PASSWORD:}
   jackson:
     time-zone: Asia/Shanghai
-    rabbitmq:
-      host: ${RABBITMQ_HOST:localhost}
-      port: ${RABBITMQ_PORT:5672}
-      username: ${RABBITMQ_USERNAME:guest}
-      password: ${RABBITMQ_PASSWORD:guest}
-      publisher-confirm-type: correlated
-      publisher-returns: true
-      template:
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
       mandatory: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
   sql:
     init:
       mode: never
@@ -44,3 +50,13 @@ studyroom:
     checkin-timeout:
       enabled: ${STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_ENABLED:false}
       listener-auto-startup: ${STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_LISTENER_AUTO_STARTUP:false}
+    outbox-retry:
+      enabled: ${STUDYROOM_RABBITMQ_OUTBOX_RETRY_ENABLED:true}
+      fixed-delay-ms: ${STUDYROOM_RABBITMQ_OUTBOX_RETRY_FIXED_DELAY_MS:60000}
+      max-retry-count: ${STUDYROOM_RABBITMQ_OUTBOX_RETRY_MAX_RETRY_COUNT:5}
+      batch-size: ${STUDYROOM_RABBITMQ_OUTBOX_RETRY_BATCH_SIZE:50}
+  redis:
+    seat-occupancy:
+      enabled: ${STUDYROOM_REDIS_SEAT_OCCUPANCY_ENABLED:true}
+      key-prefix: ${STUDYROOM_REDIS_SEAT_OCCUPANCY_KEY_PREFIX:seat:bitmap}
+      ttl-days: ${STUDYROOM_REDIS_SEAT_OCCUPANCY_TTL_DAYS:45}

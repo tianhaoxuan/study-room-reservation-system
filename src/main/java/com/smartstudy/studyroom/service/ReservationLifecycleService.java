@@ -3,12 +3,15 @@ package com.smartstudy.studyroom.service;
 import com.smartstudy.studyroom.common.ReservationStatus;
 import com.smartstudy.studyroom.common.StatusCode;
 import com.smartstudy.studyroom.entity.Reservation;
+import com.smartstudy.studyroom.entity.ReservationSlotOccupancy;
 import com.smartstudy.studyroom.exception.BusinessException;
 import com.smartstudy.studyroom.mapper.ReservationMapper;
 import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
+import com.smartstudy.studyroom.redis.ReservationSeatBitmapProjectionService;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 public class ReservationLifecycleService {
@@ -16,16 +19,19 @@ public class ReservationLifecycleService {
     private final ReservationMapper reservationMapper;
     private final ReservationSlotOccupancyMapper reservationSlotOccupancyMapper;
     private final RoomStatsService roomStatsService;
+    private final ReservationSeatBitmapProjectionService bitmapProjectionService;
 
     public ReservationLifecycleService(
             ReservationMapper reservationMapper,
             ReservationSlotOccupancyMapper reservationSlotOccupancyMapper,
-            RoomStatsService roomStatsService) {
+            RoomStatsService roomStatsService,
+            ReservationSeatBitmapProjectionService bitmapProjectionService) {
 
         this.reservationMapper = reservationMapper;
         this.reservationSlotOccupancyMapper =
                 reservationSlotOccupancyMapper;
         this.roomStatsService = roomStatsService;
+        this.bitmapProjectionService = bitmapProjectionService;
     }
 
     public void cancelByUser(Reservation reservation) {
@@ -33,7 +39,7 @@ public class ReservationLifecycleService {
         if (!currentStatus.canTransitionTo(ReservationStatus.CANCELLED)) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "\u53ea\u6709\u5f85\u7b7e\u5230\u9884\u7ea6\u53ef\u4ee5\u53d6\u6d88"
+                    "只有待签到预约可以取消"
             );
         }
 
@@ -50,7 +56,7 @@ public class ReservationLifecycleService {
         if (!currentStatus.canBeCancelledByAdmin()) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "\u8be5\u9884\u7ea6\u5f53\u524d\u72b6\u6001\u65e0\u6cd5\u53d6\u6d88"
+                    "该预约当前状态无法取消"
             );
         }
 
@@ -71,7 +77,7 @@ public class ReservationLifecycleService {
         if (!currentStatus.canTransitionTo(ReservationStatus.IN_USE)) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "\u5f53\u524d\u9884\u7ea6\u4e0d\u80fd\u7b7e\u5230"
+                    "当前预约不能签到"
             );
         }
 
@@ -93,7 +99,7 @@ public class ReservationLifecycleService {
         if (!currentStatus.canTransitionTo(ReservationStatus.COMPLETED)) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "\u53ea\u6709\u4f7f\u7528\u4e2d\u7684\u9884\u7ea6\u53ef\u4ee5\u9000\u5ea7"
+                    "只有使用中的预约可以退座"
             );
         }
 
@@ -139,9 +145,19 @@ public class ReservationLifecycleService {
     }
 
     private void releaseAndRefresh(Reservation reservation) {
+        List<ReservationSlotOccupancy> occupancies =
+                reservationSlotOccupancyMapper.findByReservationId(
+                        reservation.getId()
+                );
+
         reservationSlotOccupancyMapper.deleteByReservationId(
                 reservation.getId()
         );
+
+        bitmapProjectionService.projectReleasedAfterCommit(
+                occupancies
+        );
+
         roomStatsService.refreshRoomSeatStats(reservation.getRoomId());
     }
 
@@ -149,7 +165,7 @@ public class ReservationLifecycleService {
         if (changed == 0) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "\u9884\u7ea6\u72b6\u6001\u5df2\u7ecf\u53d8\u5316\uff0c\u8bf7\u5237\u65b0\u540e\u91cd\u8bd5"
+                    "预约状态已经变化，请刷新后重试"
             );
         }
     }

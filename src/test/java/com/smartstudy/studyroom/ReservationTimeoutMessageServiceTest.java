@@ -2,10 +2,12 @@ package com.smartstudy.studyroom;
 
 import com.smartstudy.studyroom.common.BizConstants;
 import com.smartstudy.studyroom.entity.Reservation;
+import com.smartstudy.studyroom.entity.ReservationSlotOccupancy;
 import com.smartstudy.studyroom.mapper.ReservationMapper;
 import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
 import com.smartstudy.studyroom.mapper.UserMapper;
 import com.smartstudy.studyroom.mapper.ViolationMapper;
+import com.smartstudy.studyroom.redis.ReservationSeatBitmapProjectionService;
 import com.smartstudy.studyroom.service.ConfigService;
 import com.smartstudy.studyroom.service.ReservationLifecycleService;
 import com.smartstudy.studyroom.service.ReservationTimeoutService;
@@ -15,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -45,6 +48,8 @@ class ReservationTimeoutMessageServiceTest {
         verify(fixture.violationMapper, never()).insert(any());
         verify(fixture.occupancyMapper, never())
                 .deleteByReservationId(1001L);
+        verify(fixture.bitmapProjectionService, never())
+                .projectReleasedAfterCommit(any());
     }
 
     @Test
@@ -53,6 +58,8 @@ class ReservationTimeoutMessageServiceTest {
         Reservation reservation = reservation(
                 BizConstants.RESERVATION_PENDING
         );
+        List<ReservationSlotOccupancy> occupancies =
+                List.of(occupancy(2L), occupancy(3L));
 
         when(fixture.reservationMapper.findById(1001L))
                 .thenReturn(reservation);
@@ -61,6 +68,8 @@ class ReservationTimeoutMessageServiceTest {
                 BizConstants.RESERVATION_PENDING,
                 BizConstants.RESERVATION_VIOLATED
         )).thenReturn(1);
+        when(fixture.occupancyMapper.findByReservationId(1001L))
+                .thenReturn(occupancies);
         when(fixture.configService.getIntConfig(
                 BizConstants.CONFIG_VIOLATION_LIMIT,
                 3
@@ -75,6 +84,8 @@ class ReservationTimeoutMessageServiceTest {
         assertThat(handled).isTrue();
         verify(fixture.violationMapper).insert(any());
         verify(fixture.occupancyMapper).deleteByReservationId(1001L);
+        verify(fixture.bitmapProjectionService)
+                .projectReleasedAfterCommit(occupancies);
     }
 
     private static Reservation reservation(int status) {
@@ -88,6 +99,18 @@ class ReservationTimeoutMessageServiceTest {
         reservation.setEndTime(LocalTime.of(10, 0));
         reservation.setStatus(status);
         return reservation;
+    }
+
+    private static ReservationSlotOccupancy occupancy(Long slotId) {
+        ReservationSlotOccupancy occupancy =
+                new ReservationSlotOccupancy();
+        occupancy.setReservationId(1001L);
+        occupancy.setUserId(1L);
+        occupancy.setSeatId(2L);
+        occupancy.setRoomId(3L);
+        occupancy.setReservationDate(LocalDate.now());
+        occupancy.setSlotId(slotId);
+        return occupancy;
     }
 
     private static class Fixture {
@@ -110,11 +133,16 @@ class ReservationTimeoutMessageServiceTest {
         private final RoomStatsService roomStatsService =
                 mock(RoomStatsService.class);
 
+        private final ReservationSeatBitmapProjectionService
+                bitmapProjectionService =
+                mock(ReservationSeatBitmapProjectionService.class);
+
         private final ReservationLifecycleService lifecycleService =
                 new ReservationLifecycleService(
                         reservationMapper,
                         occupancyMapper,
-                        roomStatsService
+                        roomStatsService,
+                        bitmapProjectionService
                 );
 
         private final ReservationTimeoutService service =
