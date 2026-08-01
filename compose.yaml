@@ -1,0 +1,109 @@
+services:
+  mysql:
+    image: mysql:8.0.36
+    container_name: studyroom-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-zixishi}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    ports:
+      - "${MYSQL_HOST_PORT:-3307}:3306"
+    volumes:
+      - studyroom-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks:
+      - studyroom-net
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: studyroom-redis
+    ports:
+      - "${REDIS_HOST_PORT:-6380}:6379"
+    volumes:
+      - studyroom-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks:
+      - studyroom-net
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: studyroom-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-guest}
+      TZ: Asia/Shanghai
+    ports:
+      - "${RABBITMQ_HOST_PORT:-5673}:5672"
+      - "${RABBITMQ_MANAGEMENT_HOST_PORT:-15673}:15672"
+    volumes:
+      - studyroom-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks:
+      - studyroom-net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: studyroom-app
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-zixishi}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      REDIS_DATABASE: 0
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-guest}
+      STUDYROOM_TOKEN_SECRET: ${STUDYROOM_TOKEN_SECRET:-change-me-in-real-deployments}
+      STUDYROOM_OPENAPI_SERVER_URL: ${STUDYROOM_OPENAPI_SERVER_URL:-http://localhost:8080}
+      STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_ENABLED: ${STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_ENABLED:-true}
+      STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_LISTENER_AUTO_STARTUP: ${STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_LISTENER_AUTO_STARTUP:-true}
+      STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_DEAD_LETTER_LISTENER_AUTO_STARTUP: ${STUDYROOM_RABBITMQ_CHECKIN_TIMEOUT_DEAD_LETTER_LISTENER_AUTO_STARTUP:-true}
+      JAVA_OPTS: ${JAVA_OPTS:-}
+      TZ: Asia/Shanghai
+    ports:
+      - "${APP_HOST_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - studyroom-net
+
+volumes:
+  studyroom-mysql-data:
+  studyroom-redis-data:
+  studyroom-rabbitmq-data:
+
+networks:
+  studyroom-net:
+    driver: bridge
