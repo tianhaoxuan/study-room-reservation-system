@@ -20,7 +20,11 @@ import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
 import com.smartstudy.studyroom.mapper.SeatMapper;
 import com.smartstudy.studyroom.mapper.StudyRoomMapper;
 import com.smartstudy.studyroom.messaging.CheckinTimeoutScheduledEvent;
+import com.smartstudy.studyroom.redis.RedisSeatPreOccupyService;
 import com.smartstudy.studyroom.redis.ReservationSeatBitmapProjectionService;
+import com.smartstudy.studyroom.redis.SeatPreOccupyResult;
+import com.smartstudy.studyroom.redis.SeatPreOccupyStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -48,6 +52,7 @@ public class ReservationService {
             reservationTimeoutMessageService;
     private final ReservationSeatBitmapProjectionService
             bitmapProjectionService;
+    private final RedisSeatPreOccupyService redisSeatPreOccupyService;
     private final ApplicationEventPublisher eventPublisher;
 
     public ReservationService(
@@ -64,6 +69,39 @@ public class ReservationService {
             ReservationSeatBitmapProjectionService bitmapProjectionService,
             ApplicationEventPublisher eventPublisher) {
 
+        this(
+                reservationMapper,
+                reservationSlotOccupancyMapper,
+                seatMapper,
+                studyRoomMapper,
+                userService,
+                configService,
+                roomStatsService,
+                reservationSlotService,
+                reservationLifecycleService,
+                reservationTimeoutMessageService,
+                bitmapProjectionService,
+                null,
+                eventPublisher
+        );
+    }
+
+    @Autowired
+    public ReservationService(
+            ReservationMapper reservationMapper,
+            ReservationSlotOccupancyMapper reservationSlotOccupancyMapper,
+            SeatMapper seatMapper,
+            StudyRoomMapper studyRoomMapper,
+            UserService userService,
+            ConfigService configService,
+            RoomStatsService roomStatsService,
+            ReservationSlotService reservationSlotService,
+            ReservationLifecycleService reservationLifecycleService,
+            ReservationTimeoutMessageService reservationTimeoutMessageService,
+            ReservationSeatBitmapProjectionService bitmapProjectionService,
+            RedisSeatPreOccupyService redisSeatPreOccupyService,
+            ApplicationEventPublisher eventPublisher) {
+
         this.reservationMapper = reservationMapper;
         this.reservationSlotOccupancyMapper =
                 reservationSlotOccupancyMapper;
@@ -77,6 +115,7 @@ public class ReservationService {
         this.reservationTimeoutMessageService =
                 reservationTimeoutMessageService;
         this.bitmapProjectionService = bitmapProjectionService;
+        this.redisSeatPreOccupyService = redisSeatPreOccupyService;
         this.eventPublisher = eventPublisher;
     }
 
@@ -91,8 +130,21 @@ public class ReservationService {
                 .equals(user.getStatus())) {
             throw new BusinessException(
                     StatusCode.FORBIDDEN,
-                    "账号已封禁，暂时不能预约"
+                    "account is banned"
             );
+        }
+
+        String requestId = normalizeRequestId(request.getRequestId());
+
+        if (requestId != null) {
+            Reservation existingReservation =
+                    reservationMapper.findByUserIdAndRequestId(
+                            userId,
+                            requestId
+                    );
+            if (existingReservation != null) {
+                return toCreateResponse(existingReservation);
+            }
         }
 
         LocalDate today = LocalDate.now();
@@ -100,7 +152,7 @@ public class ReservationService {
         if (request.getReservationDate().isBefore(today)) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "不能预约过去日期"
+                    "cannot reserve a past date"
             );
         }
 
@@ -109,14 +161,14 @@ public class ReservationService {
         if (seat == null) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "座位不存在"
+                    "seat does not exist"
             );
         }
 
         if (!request.getRoomId().equals(seat.getRoomId())) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "座位不属于当前自习室"
+                    "seat does not belong to room"
             );
         }
 
@@ -124,7 +176,7 @@ public class ReservationService {
                 .equals(seat.getStatus())) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "维修中的座位不能预约"
+                    "seat is under repair"
             );
         }
 
@@ -137,7 +189,7 @@ public class ReservationService {
                 || room.getStatus() != 1) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "自习室不存在或未开放"
+                    "study room is unavailable"
             );
         }
 
@@ -152,7 +204,7 @@ public class ReservationService {
                 && !slotRange.startTime().isAfter(LocalTime.now())) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "不能预约已经开始的时段"
+                    "cannot reserve a slot that has already started"
             );
         }
 
@@ -169,7 +221,7 @@ public class ReservationService {
         if (durationMinutes > maxHours * 60L) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "预约时长超过系统限制"
+                    "reservation duration exceeds limit"
             );
         }
 
@@ -181,7 +233,7 @@ public class ReservationService {
         ) > 0) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "该座位在所选时间范围内已被预约"
+                    "seat is already reserved in selected time range"
             );
         }
 
@@ -193,7 +245,7 @@ public class ReservationService {
         ) > 0) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "所选时间范围与已有预约冲突"
+                    "selected time range conflicts with existing reservation"
             );
         }
 
@@ -208,67 +260,100 @@ public class ReservationService {
         ) >= maxDaily) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "当天预约次数已达上限"
+                    "daily reservation limit reached"
             );
         }
 
-        Reservation reservation = new Reservation();
-        reservation.setUserId(userId);
-        reservation.setSeatId(request.getSeatId());
-        reservation.setRoomId(request.getRoomId());
-        reservation.setReservationDate(
-                request.getReservationDate()
-        );
-        reservation.setTimeSlot(slotRange.timeSlot());
-        reservation.setStartTime(slotRange.startTime());
-        reservation.setEndTime(slotRange.endTime());
-        reservation.setStatus(
-                ReservationStatus.PENDING_CHECKIN.code()
-        );
-
-        reservationMapper.insert(reservation);
-
-        List<ReservationSlotOccupancy> occupancies =
-                createSlotOccupancies(
-                        reservation,
+        boolean preOccupied =
+                preOccupySeat(
+                        requestId,
                         userId,
+                        request,
                         slotRange.slotIds()
                 );
 
-        bitmapProjectionService.projectOccupiedAfterCommit(
-                occupancies
-        );
+        try {
+            Reservation reservation = new Reservation();
+            reservation.setRequestId(requestId);
+            reservation.setUserId(userId);
+            reservation.setSeatId(request.getSeatId());
+            reservation.setRoomId(request.getRoomId());
+            reservation.setReservationDate(
+                    request.getReservationDate()
+            );
+            reservation.setTimeSlot(slotRange.timeSlot());
+            reservation.setStartTime(slotRange.startTime());
+            reservation.setEndTime(slotRange.endTime());
+            reservation.setStatus(
+                    ReservationStatus.PENDING_CHECKIN.code()
+            );
 
-        int checkinLimitMinutes = configService.getIntConfig(
-                BizConstants.CONFIG_CHECKIN_LIMIT_MINUTES,
-                15
-        );
+            try {
+                reservationMapper.insert(reservation);
+            } catch (DuplicateKeyException ex) {
+                CreateReservationResponse existing =
+                        tryReturnExistingByRequestId(
+                                userId,
+                                requestId
+                        );
+                if (existing != null) {
+                    return existing;
+                }
+                throw ex;
+            }
 
-        LocalDateTime deadlineAt = LocalDateTime.of(
-                request.getReservationDate(),
-                slotRange.startTime()
-        ).plusMinutes(checkinLimitMinutes);
+            List<ReservationSlotOccupancy> occupancies =
+                    createSlotOccupancies(
+                            reservation,
+                            userId,
+                            slotRange.slotIds()
+                    );
 
-        ReservationTimeoutMessage timeoutMessage =
-                reservationTimeoutMessageService.createPending(
-                        reservation.getId(),
-                        deadlineAt
+            bitmapProjectionService.projectOccupiedAfterCommit(
+                    occupancies
+            );
+
+            int checkinLimitMinutes = configService.getIntConfig(
+                    BizConstants.CONFIG_CHECKIN_LIMIT_MINUTES,
+                    15
+            );
+
+            LocalDateTime deadlineAt = LocalDateTime.of(
+                    request.getReservationDate(),
+                    slotRange.startTime()
+            ).plusMinutes(checkinLimitMinutes);
+
+            ReservationTimeoutMessage timeoutMessage =
+                    reservationTimeoutMessageService.createPending(
+                            reservation.getId(),
+                            deadlineAt
+                    );
+
+            eventPublisher.publishEvent(new CheckinTimeoutScheduledEvent(
+                    timeoutMessage.getId(),
+                    reservation.getId(),
+                    deadlineAt
+            ));
+
+            roomStatsService.refreshRoomSeatStats(
+                    request.getRoomId()
+            );
+
+            return new CreateReservationResponse(
+                    reservation.getId(),
+                    reservation.getStatus()
+            );
+        } catch (RuntimeException ex) {
+            if (preOccupied) {
+                releasePreOccupy(
+                        requestId,
+                        userId,
+                        request,
+                        slotRange.slotIds()
                 );
-
-        eventPublisher.publishEvent(new CheckinTimeoutScheduledEvent(
-                timeoutMessage.getId(),
-                reservation.getId(),
-                deadlineAt
-        ));
-
-        roomStatsService.refreshRoomSeatStats(
-                request.getRoomId()
-        );
-
-        return new CreateReservationResponse(
-                reservation.getId(),
-                reservation.getStatus()
-        );
+            }
+            throw ex;
+        }
     }
 
     @Transactional
@@ -331,18 +416,132 @@ public class ReservationService {
         if (reservation == null) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "预约不存在"
+                    "reservation does not exist"
             );
         }
 
         if (!userId.equals(reservation.getUserId())) {
             throw new BusinessException(
                     StatusCode.FORBIDDEN,
-                    "只能操作自己的预约"
+                    "can only operate own reservation"
             );
         }
 
         return reservation;
+    }
+
+    private boolean preOccupySeat(
+            String requestId,
+            Long userId,
+            CreateReservationRequest request,
+            List<Long> slotIds) {
+
+        if (requestId == null || redisSeatPreOccupyService == null) {
+            return false;
+        }
+
+        SeatPreOccupyResult result =
+                redisSeatPreOccupyService.preOccupy(
+                        requestId,
+                        userId,
+                        request.getRoomId(),
+                        request.getReservationDate(),
+                        slotIds,
+                        request.getSeatId()
+                );
+
+        SeatPreOccupyStatus status = result.status();
+
+        if (status == SeatPreOccupyStatus.PREOCCUPIED
+                || status == SeatPreOccupyStatus.IDEMPOTENT_PREOCCUPIED) {
+            return true;
+        }
+
+        if (status == SeatPreOccupyStatus.DISABLED
+                || status == SeatPreOccupyStatus.FAILED) {
+            return false;
+        }
+
+        if (status == SeatPreOccupyStatus.SEAT_CONFLICT) {
+            throw new BusinessException(
+                    StatusCode.PARAM_ERROR,
+                    "seat is already pre-occupied"
+            );
+        }
+
+        if (status == SeatPreOccupyStatus.USER_CONFLICT) {
+            throw new BusinessException(
+                    StatusCode.PARAM_ERROR,
+                    "user has overlapping pre-occupied slot"
+            );
+        }
+
+        if (status == SeatPreOccupyStatus.REQUEST_CONFLICT) {
+            throw new BusinessException(
+                    StatusCode.PARAM_ERROR,
+                    "requestId was reused with different payload"
+            );
+        }
+
+        throw new BusinessException(
+                StatusCode.PARAM_ERROR,
+                "invalid Redis pre-occupy result"
+        );
+    }
+
+    private void releasePreOccupy(
+            String requestId,
+            Long userId,
+            CreateReservationRequest request,
+            List<Long> slotIds) {
+
+        if (requestId == null || redisSeatPreOccupyService == null) {
+            return;
+        }
+
+        redisSeatPreOccupyService.release(
+                requestId,
+                userId,
+                request.getRoomId(),
+                request.getReservationDate(),
+                slotIds,
+                request.getSeatId()
+        );
+    }
+
+    private CreateReservationResponse tryReturnExistingByRequestId(
+            Long userId,
+            String requestId) {
+
+        if (requestId == null) {
+            return null;
+        }
+
+        Reservation existing =
+                reservationMapper.findByUserIdAndRequestId(
+                        userId,
+                        requestId
+                );
+        if (existing == null) {
+            return null;
+        }
+        return toCreateResponse(existing);
+    }
+
+    private CreateReservationResponse toCreateResponse(
+            Reservation reservation) {
+
+        return new CreateReservationResponse(
+                reservation.getId(),
+                reservation.getStatus()
+        );
+    }
+
+    private String normalizeRequestId(String requestId) {
+        if (requestId == null || requestId.isBlank()) {
+            return null;
+        }
+        return requestId.strip();
     }
 
     private List<ReservationSlotOccupancy> createSlotOccupancies(
@@ -379,7 +578,7 @@ public class ReservationService {
         } catch (DuplicateKeyException e) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "所选座位或时间段已被占用，请刷新后重试"
+                    "selected seat or slot is already occupied"
             );
         }
     }
