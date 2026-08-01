@@ -13,6 +13,7 @@ import com.smartstudy.studyroom.service.RoomStatsService;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 
@@ -58,6 +59,94 @@ class ReservationLifecycleServiceTest {
     }
 
     @Test
+    void shouldCompleteExpiredInUseReservationAndReleaseOccupancy() {
+        Fixture fixture = new Fixture();
+        Reservation reservation = reservation(
+                BizConstants.RESERVATION_USING
+        );
+        LocalDateTime completeTime =
+                LocalDateTime.of(2026, 8, 1, 10, 1);
+        List<ReservationSlotOccupancy> occupancies =
+                List.of(occupancy(2L), occupancy(3L));
+
+        when(fixture.reservationMapper.markLeft(
+                reservation.getId(),
+                BizConstants.RESERVATION_USING,
+                BizConstants.RESERVATION_FINISHED,
+                completeTime
+        )).thenReturn(1);
+
+        when(fixture.occupancyMapper.findByReservationId(
+                reservation.getId()
+        )).thenReturn(occupancies);
+
+        boolean changed =
+                fixture.service.completeExpiredInUse(
+                        reservation,
+                        completeTime
+                );
+
+        assertThat(changed).isTrue();
+        verify(fixture.occupancyMapper)
+                .deleteByReservationId(reservation.getId());
+        verify(fixture.bitmapProjectionService)
+                .projectReleasedAfterCommit(occupancies);
+        verify(fixture.roomStatsService)
+                .refreshRoomSeatStats(reservation.getRoomId());
+    }
+
+    @Test
+    void shouldReturnFalseWhenExpiredCompletionStateAlreadyChanged() {
+        Fixture fixture = new Fixture();
+        Reservation reservation = reservation(
+                BizConstants.RESERVATION_USING
+        );
+        LocalDateTime completeTime =
+                LocalDateTime.of(2026, 8, 1, 10, 1);
+
+        when(fixture.reservationMapper.markLeft(
+                reservation.getId(),
+                BizConstants.RESERVATION_USING,
+                BizConstants.RESERVATION_FINISHED,
+                completeTime
+        )).thenReturn(0);
+
+        boolean changed =
+                fixture.service.completeExpiredInUse(
+                        reservation,
+                        completeTime
+                );
+
+        assertThat(changed).isFalse();
+        verify(fixture.occupancyMapper, never())
+                .deleteByReservationId(reservation.getId());
+        verify(fixture.bitmapProjectionService, never())
+                .projectReleasedAfterCommit(java.util.List.of());
+        verify(fixture.roomStatsService, never())
+                .refreshRoomSeatStats(reservation.getRoomId());
+    }
+
+    @Test
+    void shouldIgnoreExpiredCompletionWhenReservationIsNotInUse() {
+        Fixture fixture = new Fixture();
+        Reservation reservation = reservation(
+                BizConstants.RESERVATION_PENDING
+        );
+
+        boolean changed =
+                fixture.service.completeExpiredInUse(
+                        reservation,
+                        LocalDateTime.now()
+                );
+
+        assertThat(changed).isFalse();
+        verify(fixture.occupancyMapper, never())
+                .deleteByReservationId(reservation.getId());
+        verify(fixture.bitmapProjectionService, never())
+                .projectReleasedAfterCommit(java.util.List.of());
+    }
+
+    @Test
     void shouldNotReleaseOccupancyWhenNoShowStateAlreadyChanged() {
         Fixture fixture = new Fixture();
         Reservation reservation = reservation(
@@ -92,7 +181,7 @@ class ReservationLifecycleServiceTest {
                 BusinessException.class,
                 () -> fixture.service.completeByLeave(
                         reservation,
-                        java.time.LocalDateTime.now()
+                        LocalDateTime.now()
                 )
         );
 

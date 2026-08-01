@@ -99,7 +99,7 @@ public class ReservationLifecycleService {
         if (!currentStatus.canTransitionTo(ReservationStatus.COMPLETED)) {
             throw new BusinessException(
                     StatusCode.PARAM_ERROR,
-                    "只有使用中的预约可以退座"
+                    "只有使用中的预约可以离座"
             );
         }
 
@@ -111,6 +111,32 @@ public class ReservationLifecycleService {
         );
         ensureChanged(changed);
         releaseAndRefresh(reservation);
+    }
+
+    public boolean completeExpiredInUse(
+            Reservation reservation,
+            LocalDateTime completeTime) {
+
+        if (reservation == null
+                || reservation.getStatus() == null
+                || reservation.getStatus()
+                != ReservationStatus.IN_USE.code()) {
+            return false;
+        }
+
+        int changed = reservationMapper.markLeft(
+                reservation.getId(),
+                ReservationStatus.IN_USE.code(),
+                ReservationStatus.COMPLETED.code(),
+                completeTime
+        );
+
+        if (changed == 0) {
+            return false;
+        }
+
+        releaseAndRefresh(reservation);
+        return true;
     }
 
     public boolean violateNoShow(Reservation reservation) {
