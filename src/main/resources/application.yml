@@ -76,6 +76,10 @@ studyroom:
       max-retry-count: ${STUDYROOM_RABBITMQ_OUTBOX_RETRY_MAX_RETRY_COUNT:5}
       batch-size: ${STUDYROOM_RABBITMQ_OUTBOX_RETRY_BATCH_SIZE:50}
   redis:
+    seat-preoccupy:
+      enabled: ${STUDYROOM_REDIS_SEAT_PREOCCUPY_ENABLED:true}
+      key-prefix: ${STUDYROOM_REDIS_SEAT_PREOCCUPY_KEY_PREFIX:seat:preoccupy}
+      ttl: ${STUDYROOM_REDIS_SEAT_PREOCCUPY_TTL:2m}
     seat-occupancy:
       enabled: ${STUDYROOM_REDIS_SEAT_OCCUPANCY_ENABLED:true}
       key-prefix: ${STUDYROOM_REDIS_SEAT_OCCUPANCY_KEY_PREFIX:seat:bitmap}
