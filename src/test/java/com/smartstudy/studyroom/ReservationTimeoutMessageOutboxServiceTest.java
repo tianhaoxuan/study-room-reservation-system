@@ -81,6 +81,26 @@ class ReservationTimeoutMessageOutboxServiceTest {
     }
 
     @Test
+    void shouldMarkMessageDeadLetterWithTruncatedReason() {
+        ReservationTimeoutMessageMapper mapper =
+                mock(ReservationTimeoutMessageMapper.class);
+        ReservationTimeoutMessageService service =
+                new ReservationTimeoutMessageService(mapper, CLOCK);
+        String longReason = "x".repeat(600);
+
+        service.markDeadLetter(2001L, longReason);
+
+        verify(mapper).markDeadLetter(
+                2001L,
+                ReservationTimeoutMessageService.STATUS_PENDING,
+                ReservationTimeoutMessageService.STATUS_FAILED,
+                ReservationTimeoutMessageService.STATUS_SENT,
+                ReservationTimeoutMessageService.STATUS_DEAD_LETTER,
+                "x".repeat(500)
+        );
+    }
+
+    @Test
     void shouldMarkMessageFailedWithTruncatedErrorAndNextRetryTime() {
         ReservationTimeoutMessageMapper mapper =
                 mock(ReservationTimeoutMessageMapper.class);
@@ -95,6 +115,7 @@ class ReservationTimeoutMessageOutboxServiceTest {
                 ReservationTimeoutMessageService.STATUS_FAILED,
                 ReservationTimeoutMessageService.STATUS_SENT,
                 ReservationTimeoutMessageService.STATUS_CONSUMED,
+                ReservationTimeoutMessageService.STATUS_DEAD_LETTER,
                 LocalDateTime.now(CLOCK).plusMinutes(1),
                 "x".repeat(500)
         );

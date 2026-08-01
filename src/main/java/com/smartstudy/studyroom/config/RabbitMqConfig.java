@@ -17,6 +17,11 @@ import java.util.Map;
 @Configuration
 public class RabbitMqConfig {
 
+    public static final String CHECKIN_TIMEOUT_LISTENER_ID =
+            "checkinTimeoutMessageConsumer";
+    public static final String CHECKIN_TIMEOUT_DEAD_LETTER_LISTENER_ID =
+            "checkinTimeoutDeadLetterConsumer";
+
     public static final String CHECKIN_TIMEOUT_DELAY_EXCHANGE =
             "studyroom.reservation.checkin.delay.exchange";
     public static final String CHECKIN_TIMEOUT_EVENT_EXCHANGE =
