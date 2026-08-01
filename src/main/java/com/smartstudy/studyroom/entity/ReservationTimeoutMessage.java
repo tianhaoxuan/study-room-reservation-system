@@ -9,6 +9,7 @@ public class ReservationTimeoutMessage {
     private LocalDateTime deadlineAt;
     private Integer status;
     private Integer retryCount;
+    private LocalDateTime nextRetryTime;
     private String lastError;
     private LocalDateTime sentTime;
     private LocalDateTime createTime;
@@ -52,6 +53,14 @@ public class ReservationTimeoutMessage {
 
     public void setRetryCount(Integer retryCount) {
         this.retryCount = retryCount;
+    }
+
+    public LocalDateTime getNextRetryTime() {
+        return nextRetryTime;
+    }
+
+    public void setNextRetryTime(LocalDateTime nextRetryTime) {
+        this.nextRetryTime = nextRetryTime;
     }
 
     public String getLastError() {
