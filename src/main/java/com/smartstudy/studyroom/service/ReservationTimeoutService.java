@@ -8,21 +8,30 @@ import com.smartstudy.studyroom.entity.Violation;
 import com.smartstudy.studyroom.mapper.ReservationMapper;
 import com.smartstudy.studyroom.mapper.UserMapper;
 import com.smartstudy.studyroom.mapper.ViolationMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
 public class ReservationTimeoutService {
 
+    private static final int DEFAULT_COMPENSATION_BATCH_SIZE = 100;
+    private static final Duration DEFAULT_COMPENSATION_LOOK_BACK =
+            Duration.ofHours(24);
+
     private final ReservationMapper reservationMapper;
     private final ReservationLifecycleService reservationLifecycleService;
     private final ViolationMapper violationMapper;
     private final UserMapper userMapper;
     private final ConfigService configService;
+    private final Clock clock;
 
+    @Autowired
     public ReservationTimeoutService(
             ReservationMapper reservationMapper,
             ReservationLifecycleService reservationLifecycleService,
@@ -30,21 +39,59 @@ public class ReservationTimeoutService {
             UserMapper userMapper,
             ConfigService configService) {
 
+        this(
+                reservationMapper,
+                reservationLifecycleService,
+                violationMapper,
+                userMapper,
+                configService,
+                Clock.systemDefaultZone()
+        );
+    }
+
+    public ReservationTimeoutService(
+            ReservationMapper reservationMapper,
+            ReservationLifecycleService reservationLifecycleService,
+            ViolationMapper violationMapper,
+            UserMapper userMapper,
+            ConfigService configService,
+            Clock clock) {
+
         this.reservationMapper = reservationMapper;
         this.reservationLifecycleService = reservationLifecycleService;
         this.violationMapper = violationMapper;
         this.userMapper = userMapper;
         this.configService = configService;
+        this.clock = clock;
     }
 
     @Transactional
     public int releaseTimeoutReservations() {
-        LocalDateTime now = LocalDateTime.now();
+        return compensateExpiredReservations(
+                DEFAULT_COMPENSATION_BATCH_SIZE,
+                DEFAULT_COMPENSATION_LOOK_BACK
+        );
+    }
 
-        int handledNoShow =
-                releaseCheckinTimeoutReservations(now);
-        int handledCompleted =
-                completeExpiredInUseReservations(now);
+    @Transactional
+    public int compensateExpiredReservations(
+            int batchSize,
+            Duration lookBack) {
+
+        LocalDateTime now = LocalDateTime.now(clock);
+        int normalizedBatchSize = normalizeBatchSize(batchSize);
+        Duration normalizedLookBack = normalizeLookBack(lookBack);
+
+        int handledNoShow = compensateCheckinTimeoutReservations(
+                now,
+                normalizedBatchSize,
+                normalizedLookBack
+        );
+        int handledCompleted = compensateExpiredInUseReservations(
+                now,
+                normalizedBatchSize,
+                normalizedLookBack
+        );
 
         return handledNoShow + handledCompleted;
     }
@@ -63,7 +110,7 @@ public class ReservationTimeoutService {
                 != ReservationStatus.PENDING_CHECKIN.code()) {
             return false;
         }
-        if (!LocalDateTime.now().isAfter(deadlineAt)) {
+        if (!LocalDateTime.now(clock).isAfter(deadlineAt)) {
             return false;
         }
 
@@ -74,7 +121,11 @@ public class ReservationTimeoutService {
         return handleTimeoutReservation(reservation, violationLimit);
     }
 
-    private int releaseCheckinTimeoutReservations(LocalDateTime now) {
+    private int compensateCheckinTimeoutReservations(
+            LocalDateTime now,
+            int batchSize,
+            Duration lookBack) {
+
         int limitMinutes = configService.getIntConfig(
                 BizConstants.CONFIG_CHECKIN_LIMIT_MINUTES,
                 15
@@ -84,19 +135,19 @@ public class ReservationTimeoutService {
                 3
         );
 
+        LocalDateTime startAtBefore = now.minusMinutes(limitMinutes);
+        LocalDateTime startAtFrom = now.minus(lookBack);
+
+        List<Reservation> reservations =
+                reservationMapper.findPendingCheckinExpiredWithin(
+                        ReservationStatus.PENDING_CHECKIN.code(),
+                        startAtFrom,
+                        startAtBefore,
+                        batchSize
+                );
+
         int handled = 0;
-        for (Reservation reservation : reservationsByStatus(
-                ReservationStatus.PENDING_CHECKIN
-        )) {
-            LocalDateTime deadline = LocalDateTime.of(
-                    reservation.getReservationDate(),
-                    reservation.getStartTime()
-            ).plusMinutes(limitMinutes);
-
-            if (!now.isAfter(deadline)) {
-                continue;
-            }
-
+        for (Reservation reservation : safeList(reservations)) {
             if (handleTimeoutReservation(reservation, violationLimit)) {
                 handled++;
             }
@@ -105,21 +156,23 @@ public class ReservationTimeoutService {
         return handled;
     }
 
-    private int completeExpiredInUseReservations(LocalDateTime now) {
+    private int compensateExpiredInUseReservations(
+            LocalDateTime now,
+            int batchSize,
+            Duration lookBack) {
+
+        LocalDateTime endAtFrom = now.minus(lookBack);
+
+        List<Reservation> reservations =
+                reservationMapper.findInUseEndedWithin(
+                        ReservationStatus.IN_USE.code(),
+                        endAtFrom,
+                        now,
+                        batchSize
+                );
+
         int handled = 0;
-
-        for (Reservation reservation : reservationsByStatus(
-                ReservationStatus.IN_USE
-        )) {
-            LocalDateTime endAt = LocalDateTime.of(
-                    reservation.getReservationDate(),
-                    reservation.getEndTime()
-            );
-
-            if (now.isBefore(endAt)) {
-                continue;
-            }
-
+        for (Reservation reservation : safeList(reservations)) {
             if (reservationLifecycleService.completeExpiredInUse(
                     reservation,
                     now
@@ -129,15 +182,6 @@ public class ReservationTimeoutService {
         }
 
         return handled;
-    }
-
-    private List<Reservation> reservationsByStatus(
-            ReservationStatus status) {
-
-        List<Reservation> reservations =
-                reservationMapper.findByStatus(status.code());
-
-        return reservations == null ? List.of() : reservations;
     }
 
     private boolean handleTimeoutReservation(
@@ -167,5 +211,22 @@ public class ReservationTimeoutService {
         }
 
         return true;
+    }
+
+    private int normalizeBatchSize(int batchSize) {
+        return batchSize <= 0
+                ? DEFAULT_COMPENSATION_BATCH_SIZE
+                : batchSize;
+    }
+
+    private Duration normalizeLookBack(Duration lookBack) {
+        if (lookBack == null || lookBack.isZero() || lookBack.isNegative()) {
+            return DEFAULT_COMPENSATION_LOOK_BACK;
+        }
+        return lookBack;
+    }
+
+    private List<Reservation> safeList(List<Reservation> reservations) {
+        return reservations == null ? List.of() : reservations;
     }
 }

@@ -225,14 +225,38 @@ public interface ReservationMapper {
             """)
     List<Reservation> findByStatus(@Param("status") Integer status);
 
+    @Select("""
+            SELECT *
+            FROM reservation
+            WHERE status = #{status}
+              AND TIMESTAMP(reservation_date, start_time) >= #{startAtFrom}
+              AND TIMESTAMP(reservation_date, start_time) < #{startAtBefore}
+            ORDER BY reservation_date ASC, start_time ASC, id ASC
+            LIMIT #{limit}
+            """)
+    List<Reservation> findPendingCheckinExpiredWithin(
+            @Param("status") Integer status,
+            @Param("startAtFrom") LocalDateTime startAtFrom,
+            @Param("startAtBefore") LocalDateTime startAtBefore,
+            @Param("limit") Integer limit
+    );
 
+    @Select("""
+            SELECT *
+            FROM reservation
+            WHERE status = #{status}
+              AND TIMESTAMP(reservation_date, end_time) >= #{endAtFrom}
+              AND TIMESTAMP(reservation_date, end_time) <= #{endAtOrBefore}
+            ORDER BY reservation_date ASC, end_time ASC, id ASC
+            LIMIT #{limit}
+            """)
+    List<Reservation> findInUseEndedWithin(
+            @Param("status") Integer status,
+            @Param("endAtFrom") LocalDateTime endAtFrom,
+            @Param("endAtOrBefore") LocalDateTime endAtOrBefore,
+            @Param("limit") Integer limit
+    );
 
-
-    /*
-     * MyBatis动态SQL保留普通字符串拼接形式。
-     * 不使用Java文本块，避免IDEA将<script>和<if>
-     * 错误识别为纯SQL或普通XML。
-     */
     @Select("<script>" +
             "SELECT COUNT(*) " +
             "FROM reservation r " +

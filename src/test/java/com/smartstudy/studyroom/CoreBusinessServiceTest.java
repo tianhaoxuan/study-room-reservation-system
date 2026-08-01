@@ -589,9 +589,19 @@ class CoreBusinessServiceTest {
                 anyInt()
         )).thenReturn(3);
 
-        when(reservationMapper.findByStatus(
-                BizConstants.RESERVATION_PENDING
+        when(reservationMapper.findPendingCheckinExpiredWithin(
+                eq(BizConstants.RESERVATION_PENDING),
+                any(LocalDateTime.class),
+                any(LocalDateTime.class),
+                eq(100)
         )).thenReturn(Collections.singletonList(reservation));
+
+        when(reservationMapper.findInUseEndedWithin(
+                eq(BizConstants.RESERVATION_USING),
+                any(LocalDateTime.class),
+                any(LocalDateTime.class),
+                eq(100)
+        )).thenReturn(Collections.emptyList());
 
         when(reservationMapper.updateStatusIfCurrent(
                 1001L,
