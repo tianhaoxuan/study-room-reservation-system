@@ -2,6 +2,7 @@ package com.smartstudy.studyroom.messaging;
 
 import com.rabbitmq.client.Channel;
 import com.smartstudy.studyroom.config.RabbitMqConfig;
+import com.smartstudy.studyroom.service.ReservationTimeoutMessageService;
 import com.smartstudy.studyroom.service.ReservationTimeoutService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,11 +20,16 @@ public class CheckinTimeoutMessageConsumer {
     );
 
     private final ReservationTimeoutService reservationTimeoutService;
+    private final ReservationTimeoutMessageService
+            reservationTimeoutMessageService;
 
     public CheckinTimeoutMessageConsumer(
-            ReservationTimeoutService reservationTimeoutService) {
+            ReservationTimeoutService reservationTimeoutService,
+            ReservationTimeoutMessageService reservationTimeoutMessageService) {
 
         this.reservationTimeoutService = reservationTimeoutService;
+        this.reservationTimeoutMessageService =
+                reservationTimeoutMessageService;
     }
 
     @RabbitListener(
@@ -46,11 +52,15 @@ public class CheckinTimeoutMessageConsumer {
                     );
             if (!handled) {
                 log.debug(
-                        "Ignored check-in timeout message, reservationId={}",
-                        message.reservationId()
+                        "Ignored check-in timeout message, reservationId={}, messageId={}",
+                        message.reservationId(),
+                        message.messageId()
                 );
             }
 
+            reservationTimeoutMessageService.markConsumed(
+                    message.messageId()
+            );
             channel.basicAck(deliveryTag, false);
         } catch (RuntimeException e) {
             channel.basicReject(deliveryTag, false);

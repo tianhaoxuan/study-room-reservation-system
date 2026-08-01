@@ -92,6 +92,7 @@ public class CheckinTimeoutMessagePublisher {
             LocalDateTime deadlineAt) {
 
         CheckinTimeoutMessage message = new CheckinTimeoutMessage(
+                messageId,
                 reservationId,
                 deadlineAt
         );

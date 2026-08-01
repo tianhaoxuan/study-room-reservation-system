@@ -63,6 +63,24 @@ class ReservationTimeoutMessageOutboxServiceTest {
     }
 
     @Test
+    void shouldMarkMessageConsumed() {
+        ReservationTimeoutMessageMapper mapper =
+                mock(ReservationTimeoutMessageMapper.class);
+        ReservationTimeoutMessageService service =
+                new ReservationTimeoutMessageService(mapper, CLOCK);
+
+        service.markConsumed(2001L);
+
+        verify(mapper).markConsumed(
+                2001L,
+                ReservationTimeoutMessageService.STATUS_PENDING,
+                ReservationTimeoutMessageService.STATUS_FAILED,
+                ReservationTimeoutMessageService.STATUS_SENT,
+                ReservationTimeoutMessageService.STATUS_CONSUMED
+        );
+    }
+
+    @Test
     void shouldMarkMessageFailedWithTruncatedErrorAndNextRetryTime() {
         ReservationTimeoutMessageMapper mapper =
                 mock(ReservationTimeoutMessageMapper.class);
@@ -76,6 +94,7 @@ class ReservationTimeoutMessageOutboxServiceTest {
                 2001L,
                 ReservationTimeoutMessageService.STATUS_FAILED,
                 ReservationTimeoutMessageService.STATUS_SENT,
+                ReservationTimeoutMessageService.STATUS_CONSUMED,
                 LocalDateTime.now(CLOCK).plusMinutes(1),
                 "x".repeat(500)
         );
