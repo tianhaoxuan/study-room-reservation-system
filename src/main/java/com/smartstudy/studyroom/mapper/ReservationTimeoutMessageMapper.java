@@ -54,14 +54,32 @@ public interface ReservationTimeoutMessageMapper {
                 next_retry_time = #{nextRetryTime},
                 last_error = #{lastError}
             WHERE id = #{id}
-              AND status <> #{sentStatus}
+              AND status NOT IN (#{sentStatus}, #{consumedStatus})
             """)
     int markFailed(
             @Param("id") Long id,
             @Param("failedStatus") Integer failedStatus,
             @Param("sentStatus") Integer sentStatus,
+            @Param("consumedStatus") Integer consumedStatus,
             @Param("nextRetryTime") LocalDateTime nextRetryTime,
             @Param("lastError") String lastError
+    );
+
+    @Update("""
+            UPDATE reservation_timeout_message
+            SET status = #{consumedStatus},
+                consumed_time = NOW(),
+                last_error = NULL,
+                next_retry_time = NULL
+            WHERE id = #{id}
+              AND status IN (#{pendingStatus}, #{failedStatus}, #{sentStatus})
+            """)
+    int markConsumed(
+            @Param("id") Long id,
+            @Param("pendingStatus") Integer pendingStatus,
+            @Param("failedStatus") Integer failedStatus,
+            @Param("sentStatus") Integer sentStatus,
+            @Param("consumedStatus") Integer consumedStatus
     );
 
     @Select("""

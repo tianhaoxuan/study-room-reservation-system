@@ -1,6 +1,7 @@
 package com.smartstudy.studyroom.messaging;
 
 import com.rabbitmq.client.Channel;
+import com.smartstudy.studyroom.service.ReservationTimeoutMessageService;
 import com.smartstudy.studyroom.service.ReservationTimeoutService;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.Message;
@@ -13,16 +14,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class CheckinTimeoutMessageConsumerTest {
 
     @Test
-    void shouldDelegateMessageToTimeoutServiceAndAck() throws IOException {
+    void shouldDelegateMessageToTimeoutServiceMarkConsumedAndAck()
+            throws IOException {
+
         ReservationTimeoutService reservationTimeoutService =
                 mock(ReservationTimeoutService.class);
+        ReservationTimeoutMessageService messageService =
+                mock(ReservationTimeoutMessageService.class);
         CheckinTimeoutMessageConsumer consumer =
                 new CheckinTimeoutMessageConsumer(
-                        reservationTimeoutService
+                        reservationTimeoutService,
+                        messageService
                 );
         LocalDateTime deadlineAt = LocalDateTime.of(
                 2026,
@@ -34,14 +41,58 @@ class CheckinTimeoutMessageConsumerTest {
         Message rawMessage = rawMessage(99L);
         Channel channel = mock(Channel.class);
 
+        when(reservationTimeoutService.handleCheckinTimeoutMessage(
+                1001L,
+                deadlineAt
+        )).thenReturn(true);
+
         consumer.consume(
-                new CheckinTimeoutMessage(1001L, deadlineAt),
+                new CheckinTimeoutMessage(2001L, 1001L, deadlineAt),
                 rawMessage,
                 channel
         );
 
         verify(reservationTimeoutService)
                 .handleCheckinTimeoutMessage(1001L, deadlineAt);
+        verify(messageService).markConsumed(2001L);
+        verify(channel).basicAck(99L, false);
+    }
+
+    @Test
+    void shouldMarkConsumedWhenMessageIsIdempotentlyIgnored()
+            throws IOException {
+
+        ReservationTimeoutService reservationTimeoutService =
+                mock(ReservationTimeoutService.class);
+        ReservationTimeoutMessageService messageService =
+                mock(ReservationTimeoutMessageService.class);
+        CheckinTimeoutMessageConsumer consumer =
+                new CheckinTimeoutMessageConsumer(
+                        reservationTimeoutService,
+                        messageService
+                );
+        LocalDateTime deadlineAt = LocalDateTime.of(
+                2026,
+                7,
+                31,
+                8,
+                15
+        );
+        Message rawMessage = rawMessage(99L);
+        Channel channel = mock(Channel.class);
+
+        when(reservationTimeoutService.handleCheckinTimeoutMessage(
+                1001L,
+                deadlineAt
+        )).thenReturn(false);
+
+        consumer.consume(
+                new CheckinTimeoutMessage(2001L, 1001L, deadlineAt),
+                rawMessage,
+                channel
+        );
+
+        verify(messageService).markConsumed(2001L);
         verify(channel).basicAck(99L, false);
     }
 
@@ -51,9 +102,12 @@ class CheckinTimeoutMessageConsumerTest {
 
         ReservationTimeoutService reservationTimeoutService =
                 mock(ReservationTimeoutService.class);
+        ReservationTimeoutMessageService messageService =
+                mock(ReservationTimeoutMessageService.class);
         CheckinTimeoutMessageConsumer consumer =
                 new CheckinTimeoutMessageConsumer(
-                        reservationTimeoutService
+                        reservationTimeoutService,
+                        messageService
                 );
         LocalDateTime deadlineAt = LocalDateTime.of(
                 2026,
@@ -71,7 +125,7 @@ class CheckinTimeoutMessageConsumerTest {
         Channel channel = mock(Channel.class);
 
         assertThatThrownBy(() -> consumer.consume(
-                new CheckinTimeoutMessage(1001L, deadlineAt),
+                new CheckinTimeoutMessage(2001L, 1001L, deadlineAt),
                 rawMessage,
                 channel
         )).isSameAs(failure);

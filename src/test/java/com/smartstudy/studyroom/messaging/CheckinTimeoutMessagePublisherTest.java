@@ -62,7 +62,7 @@ class CheckinTimeoutMessagePublisherTest {
         verify(rabbitTemplate).convertAndSend(
                 eq(RabbitMqConfig.CHECKIN_TIMEOUT_DELAY_EXCHANGE),
                 eq(RabbitMqConfig.CHECKIN_TIMEOUT_DELAY_ROUTING_KEY),
-                eq(new CheckinTimeoutMessage(1001L, deadlineAt)),
+                eq(new CheckinTimeoutMessage(2001L, 1001L, deadlineAt)),
                 processorCaptor.capture(),
                 correlationCaptor.capture()
         );

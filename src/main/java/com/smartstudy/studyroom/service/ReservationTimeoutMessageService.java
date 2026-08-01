@@ -15,6 +15,7 @@ public class ReservationTimeoutMessageService {
     public static final int STATUS_PENDING = 1;
     public static final int STATUS_SENT = 2;
     public static final int STATUS_FAILED = 3;
+    public static final int STATUS_CONSUMED = 4;
 
     private static final int MAX_ERROR_LENGTH = 500;
     private static final int DEFAULT_RETRY_DELAY_MINUTES = 1;
@@ -66,10 +67,25 @@ public class ReservationTimeoutMessageService {
                 messageId,
                 STATUS_FAILED,
                 STATUS_SENT,
+                STATUS_CONSUMED,
                 LocalDateTime.now(clock).plusMinutes(
                         DEFAULT_RETRY_DELAY_MINUTES
                 ),
                 truncate(errorMessage)
+        );
+    }
+
+    public void markConsumed(Long messageId) {
+        if (messageId == null) {
+            return;
+        }
+
+        mapper.markConsumed(
+                messageId,
+                STATUS_PENDING,
+                STATUS_FAILED,
+                STATUS_SENT,
+                STATUS_CONSUMED
         );
     }
 
