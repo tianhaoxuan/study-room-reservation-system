@@ -99,6 +99,11 @@ class SeatOccupancyBitmapServiceTest {
         when(redisTemplate.opsForValue())
                 .thenReturn(valueOperations);
 
+        when(redisTemplate.hasKey("seat:bitmap:1:2026-08-01:2"))
+                .thenReturn(true);
+        when(redisTemplate.hasKey("seat:bitmap:1:2026-08-01:3"))
+                .thenReturn(true);
+
         when(valueOperations.getBit(
                 "seat:bitmap:1:2026-08-01:2",
                 1001L
@@ -136,11 +141,44 @@ class SeatOccupancyBitmapServiceTest {
     }
 
     @Test
+    void shouldReturnEmptyOptionalWhenAnySlotBitmapKeyIsMissing() {
+        StringRedisTemplate redisTemplate =
+                mock(StringRedisTemplate.class);
+        ValueOperations<String, String> valueOperations =
+                mock(ValueOperations.class);
+
+        when(redisTemplate.opsForValue())
+                .thenReturn(valueOperations);
+
+        when(redisTemplate.hasKey("seat:bitmap:1:2026-08-01:2"))
+                .thenReturn(true);
+        when(redisTemplate.hasKey("seat:bitmap:1:2026-08-01:3"))
+                .thenReturn(false);
+
+        SeatOccupancyBitmapService service =
+                new SeatOccupancyBitmapService(
+                        redisTemplate,
+                        new SeatOccupancyBitmapKey("seat:bitmap"),
+                        45
+                );
+
+        Optional<Set<Long>> occupiedSeatIds =
+                service.findOccupiedSeatIds(
+                        1L,
+                        LocalDate.of(2026, 8, 1),
+                        List.of(2L, 3L),
+                        List.of(1001L)
+                );
+
+        assertThat(occupiedSeatIds).isEmpty();
+    }
+
+    @Test
     void shouldReturnEmptyOptionalWhenRedisReadFails() {
         StringRedisTemplate redisTemplate =
                 mock(StringRedisTemplate.class);
 
-        when(redisTemplate.opsForValue())
+        when(redisTemplate.hasKey("seat:bitmap:1:2026-08-01:2"))
                 .thenThrow(new IllegalStateException("redis down"));
 
         SeatOccupancyBitmapService service =

@@ -28,6 +28,7 @@ import com.smartstudy.studyroom.mapper.StudyRoomMapper;
 import com.smartstudy.studyroom.mapper.UserMapper;
 import com.smartstudy.studyroom.mapper.ViolationMapper;
 import com.smartstudy.studyroom.messaging.CheckinTimeoutScheduledEvent;
+import com.smartstudy.studyroom.redis.ReservationSeatBitmapProjectionService;
 import com.smartstudy.studyroom.service.AdminReservationService;
 import com.smartstudy.studyroom.service.AuthService;
 import com.smartstudy.studyroom.service.CheckinService;
@@ -272,6 +273,9 @@ class CoreBusinessServiceTest {
                             .isEqualTo(request.getReservationDate());
                 });
 
+        verify(fixture.bitmapProjectionService)
+                .projectOccupiedAfterCommit(occupancies);
+
         verify(fixture.reservationTimeoutMessageService)
                 .createPending(1001L, deadlineAt);
 
@@ -298,6 +302,8 @@ class CoreBusinessServiceTest {
                 1L,
                 1L
         );
+        List<ReservationSlotOccupancy> occupancies =
+                List.of(occupancy(1001L, 1L, 1L, 1L, 2L));
 
         when(fixture.reservationMapper.findById(1001L))
                 .thenReturn(reservation);
@@ -308,8 +314,9 @@ class CoreBusinessServiceTest {
                 BizConstants.RESERVATION_CANCELED
         )).thenReturn(1);
 
-        when(fixture.reservationMapper.countActiveBySeat(1L))
-                .thenReturn(0);
+        when(fixture.reservationSlotOccupancyMapper
+                .findByReservationId(1001L))
+                .thenReturn(occupancies);
 
         fixture.reservationService.cancelReservation(
                 1L,
@@ -318,6 +325,8 @@ class CoreBusinessServiceTest {
 
         verify(fixture.reservationSlotOccupancyMapper)
                 .deleteByReservationId(1001L);
+        verify(fixture.bitmapProjectionService)
+                .projectReleasedAfterCommit(occupancies);
     }
 
     @Test
@@ -335,6 +344,8 @@ class CoreBusinessServiceTest {
                 1L,
                 1L
         );
+        List<ReservationSlotOccupancy> occupancies =
+                List.of(occupancy(1001L, 1L, 1L, 1L, 2L));
 
         when(fixture.reservationMapper.findById(1001L))
                 .thenReturn(reservation);
@@ -343,10 +354,9 @@ class CoreBusinessServiceTest {
                 ReservationStatus.adminCancellableCodes(),
                 BizConstants.RESERVATION_CANCELED
         )).thenReturn(1);
-        when(fixture.reservationMapper.countActiveBySeatExclude(
-                1L,
-                1001L
-        )).thenReturn(0);
+        when(fixture.reservationSlotOccupancyMapper
+                .findByReservationId(1001L))
+                .thenReturn(occupancies);
 
         adminReservationService.cancel(
                 1001L,
@@ -355,6 +365,8 @@ class CoreBusinessServiceTest {
 
         verify(fixture.reservationSlotOccupancyMapper)
                 .deleteByReservationId(1001L);
+        verify(fixture.bitmapProjectionService)
+                .projectReleasedAfterCommit(occupancies);
         verify(fixture.roomStatsService)
                 .refreshRoomSeatStats(1L);
     }
@@ -469,6 +481,8 @@ class CoreBusinessServiceTest {
         reservation.setStatus(
                 BizConstants.RESERVATION_USING
         );
+        List<ReservationSlotOccupancy> occupancies =
+                List.of(occupancy(1001L, 1L, 1L, 1L, 2L));
 
         when(fixture.reservationMapper.findById(1001L))
                 .thenReturn(reservation);
@@ -480,15 +494,16 @@ class CoreBusinessServiceTest {
                 any()
         )).thenReturn(1);
 
-        when(fixture.reservationMapper.countActiveBySeatExclude(
-                1L,
-                1001L
-        )).thenReturn(0);
+        when(fixture.reservationSlotOccupancyMapper
+                .findByReservationId(1001L))
+                .thenReturn(occupancies);
 
         checkinService.leave(1L, 1001L);
 
         verify(fixture.reservationSlotOccupancyMapper)
                 .deleteByReservationId(1001L);
+        verify(fixture.bitmapProjectionService)
+                .projectReleasedAfterCommit(occupancies);
     }
 
     @Test
@@ -526,11 +541,14 @@ class CoreBusinessServiceTest {
                 mock(ConfigService.class);
         RoomStatsService roomStatsService =
                 mock(RoomStatsService.class);
+        ReservationSeatBitmapProjectionService bitmapProjectionService =
+                mock(ReservationSeatBitmapProjectionService.class);
         ReservationLifecycleService reservationLifecycleService =
                 new ReservationLifecycleService(
                         reservationMapper,
                         reservationSlotOccupancyMapper,
-                        roomStatsService
+                        roomStatsService,
+                        bitmapProjectionService
                 );
 
         ReservationTimeoutService service =
@@ -548,6 +566,8 @@ class CoreBusinessServiceTest {
                 2L,
                 1L
         );
+        List<ReservationSlotOccupancy> occupancies =
+                List.of(occupancy(1001L, 1L, 2L, 1L, 2L));
 
         LocalDateTime overdueStart =
                 LocalDateTime.now().minusMinutes(30).withNano(0);
@@ -579,6 +599,9 @@ class CoreBusinessServiceTest {
                 BizConstants.RESERVATION_VIOLATED
         )).thenReturn(1);
 
+        when(reservationSlotOccupancyMapper.findByReservationId(1001L))
+                .thenReturn(occupancies);
+
         User user = normalUser(1L);
         user.setViolationCount(3);
 
@@ -592,6 +615,8 @@ class CoreBusinessServiceTest {
         verify(userMapper).banUser(1L);
         verify(reservationSlotOccupancyMapper)
                 .deleteByReservationId(1001L);
+        verify(bitmapProjectionService)
+                .projectReleasedAfterCommit(occupancies);
     }
 
     private static CreateReservationRequest reservationRequest(
@@ -670,6 +695,24 @@ class CoreBusinessServiceTest {
         return reservation;
     }
 
+    private static ReservationSlotOccupancy occupancy(
+            Long reservationId,
+            Long userId,
+            Long seatId,
+            Long roomId,
+            Long slotId) {
+
+        ReservationSlotOccupancy occupancy =
+                new ReservationSlotOccupancy();
+        occupancy.setReservationId(reservationId);
+        occupancy.setUserId(userId);
+        occupancy.setSeatId(seatId);
+        occupancy.setRoomId(roomId);
+        occupancy.setReservationDate(LocalDate.now().plusDays(1));
+        occupancy.setSlotId(slotId);
+        return occupancy;
+    }
+
     private static class ReservationFixture {
 
         private final ReservationMapper reservationMapper =
@@ -701,6 +744,10 @@ class CoreBusinessServiceTest {
                 reservationTimeoutMessageService =
                 mock(ReservationTimeoutMessageService.class);
 
+        private final ReservationSeatBitmapProjectionService
+                bitmapProjectionService =
+                mock(ReservationSeatBitmapProjectionService.class);
+
         private final ApplicationEventPublisher eventPublisher =
                 mock(ApplicationEventPublisher.class);
 
@@ -712,7 +759,8 @@ class CoreBusinessServiceTest {
                 new ReservationLifecycleService(
                         reservationMapper,
                         reservationSlotOccupancyMapper,
-                        roomStatsService
+                        roomStatsService,
+                        bitmapProjectionService
                 );
 
         private final ReservationService reservationService =
@@ -727,6 +775,7 @@ class CoreBusinessServiceTest {
                         reservationSlotService,
                         reservationLifecycleService,
                         reservationTimeoutMessageService,
+                        bitmapProjectionService,
                         eventPublisher
                 );
     }

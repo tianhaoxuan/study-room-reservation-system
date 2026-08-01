@@ -34,75 +34,31 @@ public class SeatOccupancyBitmapService {
         this.ttlDays = ttlDays;
     }
 
-    public void occupy(
-            Long roomId,
-            LocalDate reservationDate,
-            Long slotId,
-            Long seatId) {
-
+    public void occupy(Long roomId, LocalDate reservationDate,
+                       Long slotId, Long seatId) {
         validateSeatId(seatId);
-
         String key = bitmapKey.forSlot(roomId, reservationDate, slotId);
 
         try {
             redisTemplate.opsForValue().setBit(key, seatId, true);
             redisTemplate.expire(key, ttl());
         } catch (RuntimeException ex) {
-            log.warn(
-                    "Failed to set Redis seat occupancy bitmap, key={}, seatId={}",
-                    key,
-                    seatId,
-                    ex
-            );
+            log.warn("Failed to set Redis seat occupancy bitmap, key={}, seatId={}",
+                    key, seatId, ex);
         }
     }
 
-    public void release(
-            Long roomId,
-            LocalDate reservationDate,
-            Long slotId,
-            Long seatId) {
-
+    public void release(Long roomId, LocalDate reservationDate,
+                        Long slotId, Long seatId) {
         validateSeatId(seatId);
-
         String key = bitmapKey.forSlot(roomId, reservationDate, slotId);
 
         try {
             redisTemplate.opsForValue().setBit(key, seatId, false);
             redisTemplate.expire(key, ttl());
         } catch (RuntimeException ex) {
-            log.warn(
-                    "Failed to clear Redis seat occupancy bitmap, key={}, seatId={}",
-                    key,
-                    seatId,
-                    ex
-            );
-        }
-    }
-
-    public void occupyRange(
-            Long roomId,
-            LocalDate reservationDate,
-            Collection<Long> slotIds,
-            Long seatId) {
-
-        validateSlotIds(slotIds);
-
-        for (Long slotId : slotIds) {
-            occupy(roomId, reservationDate, slotId, seatId);
-        }
-    }
-
-    public void releaseRange(
-            Long roomId,
-            LocalDate reservationDate,
-            Collection<Long> slotIds,
-            Long seatId) {
-
-        validateSlotIds(slotIds);
-
-        for (Long slotId : slotIds) {
-            release(roomId, reservationDate, slotId, seatId);
+            log.warn("Failed to clear Redis seat occupancy bitmap, key={}, seatId={}",
+                    key, seatId, ex);
         }
     }
 
@@ -115,30 +71,37 @@ public class SeatOccupancyBitmapService {
         validateSlotIds(slotIds);
         validateSeatIds(seatIds);
 
-        Set<Long> occupiedSeatIds = new LinkedHashSet<>();
-
         try {
+            if (!allSlotKeysExist(roomId, reservationDate, slotIds)) {
+                return Optional.empty();
+            }
+
+            Set<Long> occupiedSeatIds = new LinkedHashSet<>();
             for (Long seatId : seatIds) {
-                if (isOccupiedInAnySlot(
-                        roomId,
-                        reservationDate,
-                        slotIds,
-                        seatId
-                )) {
+                if (isOccupiedInAnySlot(roomId, reservationDate, slotIds, seatId)) {
                     occupiedSeatIds.add(seatId);
                 }
             }
             return Optional.of(occupiedSeatIds);
         } catch (RuntimeException ex) {
-            log.warn(
-                    "Failed to read Redis seat occupancy bitmap, roomId={}, reservationDate={}, slotIds={}",
-                    roomId,
-                    reservationDate,
-                    slotIds,
-                    ex
-            );
+            log.warn("Failed to read Redis seat occupancy bitmap, roomId={}, reservationDate={}, slotIds={}",
+                    roomId, reservationDate, slotIds, ex);
             return Optional.empty();
         }
+    }
+
+    private boolean allSlotKeysExist(
+            Long roomId,
+            LocalDate reservationDate,
+            Collection<Long> slotIds) {
+
+        for (Long slotId : slotIds) {
+            String key = bitmapKey.forSlot(roomId, reservationDate, slotId);
+            if (!Boolean.TRUE.equals(redisTemplate.hasKey(key))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean isOccupiedInAnySlot(
@@ -148,16 +111,8 @@ public class SeatOccupancyBitmapService {
             Long seatId) {
 
         for (Long slotId : slotIds) {
-            String key = bitmapKey.forSlot(
-                    roomId,
-                    reservationDate,
-                    slotId
-            );
-
-            Boolean occupied =
-                    redisTemplate.opsForValue().getBit(key, seatId);
-
-            if (Boolean.TRUE.equals(occupied)) {
+            String key = bitmapKey.forSlot(roomId, reservationDate, slotId);
+            if (Boolean.TRUE.equals(redisTemplate.opsForValue().getBit(key, seatId))) {
                 return true;
             }
         }
@@ -170,31 +125,23 @@ public class SeatOccupancyBitmapService {
 
     private void validateSlotIds(Collection<Long> slotIds) {
         if (slotIds == null || slotIds.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "slotIds must not be empty"
-            );
+            throw new IllegalArgumentException("slotIds must not be empty");
         }
         if (slotIds.stream().anyMatch(slotId -> slotId == null)) {
-            throw new IllegalArgumentException(
-                    "slotIds must not contain null"
-            );
+            throw new IllegalArgumentException("slotIds must not contain null");
         }
     }
 
     private void validateSeatIds(Collection<Long> seatIds) {
         if (seatIds == null || seatIds.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "seatIds must not be empty"
-            );
+            throw new IllegalArgumentException("seatIds must not be empty");
         }
         seatIds.forEach(this::validateSeatId);
     }
 
     private void validateSeatId(Long seatId) {
         if (seatId == null || seatId < 0) {
-            throw new IllegalArgumentException(
-                    "seatId must be a non-negative value"
-            );
+            throw new IllegalArgumentException("seatId must be a non-negative value");
         }
     }
 }

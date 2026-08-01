@@ -10,6 +10,7 @@ import com.smartstudy.studyroom.exception.BusinessException;
 import com.smartstudy.studyroom.mapper.SeatAvailabilityMapper;
 import com.smartstudy.studyroom.mapper.SeatMapper;
 import com.smartstudy.studyroom.mapper.StudyRoomMapper;
+import com.smartstudy.studyroom.redis.SeatOccupancyBitmapService;
 import com.smartstudy.studyroom.service.ReservationSlotService;
 import com.smartstudy.studyroom.service.SeatAvailabilityService;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,10 +19,13 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -32,6 +36,7 @@ class SeatAvailabilityServiceTest {
     private StudyRoomMapper studyRoomMapper;
     private SeatAvailabilityMapper seatAvailabilityMapper;
     private ReservationSlotService reservationSlotService;
+    private SeatOccupancyBitmapService bitmapService;
     private SeatAvailabilityService seatAvailabilityService;
 
     @BeforeEach
@@ -42,17 +47,94 @@ class SeatAvailabilityServiceTest {
                 mock(SeatAvailabilityMapper.class);
         reservationSlotService =
                 mock(ReservationSlotService.class);
+        bitmapService = mock(SeatOccupancyBitmapService.class);
 
         seatAvailabilityService = new SeatAvailabilityService(
                 seatMapper,
                 studyRoomMapper,
                 seatAvailabilityMapper,
-                reservationSlotService
+                reservationSlotService,
+                bitmapService,
+                true
         );
     }
 
     @Test
-    void returnsDynamicSeatStatusesForSelectedRange() {
+    void returnsReservedStatusesFromRedisBitmapWhenProjectionExists() {
+        LocalDate reservationDate =
+                LocalDate.now().plusDays(1);
+
+        StudyRoom room = enabledRoom(1L);
+
+        ReservationSlotRange slotRange =
+                new ReservationSlotRange(
+                        List.of(2L, 3L, 4L, 5L),
+                        LocalTime.of(8, 0),
+                        LocalTime.of(10, 0),
+                        "08:00-10:00"
+                );
+
+        Seat seat1 = seat(
+                1L,
+                BizConstants.SEAT_STATUS_FREE
+        );
+        Seat seat2 = seat(
+                2L,
+                BizConstants.SEAT_STATUS_FREE
+        );
+        Seat seat3 = seat(
+                3L,
+                BizConstants.SEAT_STATUS_REPAIR
+        );
+
+        when(studyRoomMapper.findById(1L))
+                .thenReturn(room);
+
+        when(reservationSlotService.resolveSelectableRange(
+                room,
+                2L,
+                5L
+        )).thenReturn(slotRange);
+
+        when(seatMapper.findByRoomId(1L))
+                .thenReturn(List.of(seat1, seat2, seat3));
+
+        when(bitmapService.findOccupiedSeatIds(
+                1L,
+                reservationDate,
+                List.of(2L, 3L, 4L, 5L),
+                List.of(1L, 2L, 3L)
+        )).thenReturn(Optional.of(Set.of(1L, 2L)));
+
+        List<SeatAvailabilityResponse> result =
+                seatAvailabilityService.findAvailableSeats(
+                        1L,
+                        reservationDate,
+                        2L,
+                        5L
+                );
+
+        assertThat(result).hasSize(3);
+
+        assertThat(result.get(0).status())
+                .isEqualTo(BizConstants.SEAT_STATUS_RESERVED);
+
+        assertThat(result.get(1).status())
+                .isEqualTo(BizConstants.SEAT_STATUS_RESERVED);
+
+        assertThat(result.get(2).status())
+                .isEqualTo(BizConstants.SEAT_STATUS_REPAIR);
+
+        verify(seatAvailabilityMapper, never())
+                .findActiveReservationsBySlotIds(
+                        1L,
+                        reservationDate,
+                        List.of(2L, 3L, 4L, 5L)
+                );
+    }
+
+    @Test
+    void fallsBackToMysqlWhenRedisProjectionMissing() {
         LocalDate reservationDate =
                 LocalDate.now().plusDays(1);
 
@@ -100,6 +182,13 @@ class SeatAvailabilityServiceTest {
         when(seatMapper.findByRoomId(1L))
                 .thenReturn(List.of(seat1, seat2, seat3));
 
+        when(bitmapService.findOccupiedSeatIds(
+                1L,
+                reservationDate,
+                List.of(2L, 3L, 4L, 5L),
+                List.of(1L, 2L, 3L)
+        )).thenReturn(Optional.empty());
+
         when(seatAvailabilityMapper.findActiveReservationsBySlotIds(
                 1L,
                 reservationDate,
@@ -137,7 +226,7 @@ class SeatAvailabilityServiceTest {
     }
 
     @Test
-    void treatsSeatAsFreeWhenNoReservationOverlaps() {
+    void queriesMysqlDirectlyWhenRedisProjectionDisabled() {
         LocalDate reservationDate =
                 LocalDate.now().plusDays(1);
 
@@ -151,10 +240,15 @@ class SeatAvailabilityServiceTest {
                         "08:00-09:00"
                 );
 
-        /*
-         * 数据库seat表中可能因为其他日期的预约而保留状态2。
-         * 当前查询时间没有交叉预约时，应重新计算为空闲状态1。
-         */
+        seatAvailabilityService = new SeatAvailabilityService(
+                seatMapper,
+                studyRoomMapper,
+                seatAvailabilityMapper,
+                reservationSlotService,
+                bitmapService,
+                false
+        );
+
         Seat seat = seat(
                 1L,
                 BizConstants.SEAT_STATUS_RESERVED
@@ -189,6 +283,8 @@ class SeatAvailabilityServiceTest {
         assertThat(result).hasSize(1);
         assertThat(result.get(0).status())
                 .isEqualTo(BizConstants.SEAT_STATUS_FREE);
+
+        verifyNoInteractions(bitmapService);
     }
 
     @Test
@@ -211,7 +307,8 @@ class SeatAvailabilityServiceTest {
                 seatMapper,
                 studyRoomMapper,
                 seatAvailabilityMapper,
-                reservationSlotService
+                reservationSlotService,
+                bitmapService
         );
     }
 

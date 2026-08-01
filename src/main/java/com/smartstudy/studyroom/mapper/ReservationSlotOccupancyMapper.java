@@ -41,6 +41,16 @@ public interface ReservationSlotOccupancyMapper {
             List<ReservationSlotOccupancy> occupancies
     );
 
+    @Select("""
+            SELECT *
+            FROM reservation_slot_occupancy
+            WHERE reservation_id = #{reservationId}
+            ORDER BY slot_id ASC
+            """)
+    List<ReservationSlotOccupancy> findByReservationId(
+            @Param("reservationId") Long reservationId
+    );
+
     @Delete("""
             DELETE FROM reservation_slot_occupancy
             WHERE reservation_id = #{reservationId}
