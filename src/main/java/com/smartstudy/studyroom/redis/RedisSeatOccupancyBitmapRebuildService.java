@@ -12,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -24,13 +25,16 @@ public class RedisSeatOccupancyBitmapRebuildService {
 
     private final ReservationSlotOccupancyMapper occupancyMapper;
     private final SeatOccupancyBitmapService bitmapService;
+    private final RedisSeatOccupancyBitmapRebuildLockService lockService;
 
     public RedisSeatOccupancyBitmapRebuildService(
             ReservationSlotOccupancyMapper occupancyMapper,
-            SeatOccupancyBitmapService bitmapService) {
+            SeatOccupancyBitmapService bitmapService,
+            RedisSeatOccupancyBitmapRebuildLockService lockService) {
 
         this.occupancyMapper = occupancyMapper;
         this.bitmapService = bitmapService;
+        this.lockService = lockService;
     }
 
     public boolean rebuild(
@@ -47,8 +51,30 @@ public class RedisSeatOccupancyBitmapRebuildService {
 
         List<Long> orderedSlotIds =
                 slotIds.stream()
+                        .filter(Objects::nonNull)
                         .distinct()
                         .toList();
+
+        if (orderedSlotIds.isEmpty()) {
+            return false;
+        }
+
+        return lockService.runWithLock(
+                roomId,
+                reservationDate,
+                orderedSlotIds,
+                () -> rebuildWithoutLock(
+                        roomId,
+                        reservationDate,
+                        orderedSlotIds
+                )
+        );
+    }
+
+    private boolean rebuildWithoutLock(
+            Long roomId,
+            LocalDate reservationDate,
+            List<Long> orderedSlotIds) {
 
         try {
             List<ReservationSlotOccupancy> occupancies =
@@ -67,12 +93,13 @@ public class RedisSeatOccupancyBitmapRebuildService {
             boolean rebuiltAll = true;
 
             for (Long slotId : orderedSlotIds) {
-                boolean rebuilt = bitmapService.rebuildSlot(
-                        roomId,
-                        reservationDate,
-                        slotId,
-                        occupiedSeatIdsBySlot.get(slotId)
-                );
+                boolean rebuilt =
+                        bitmapService.rebuildSlot(
+                                roomId,
+                                reservationDate,
+                                slotId,
+                                occupiedSeatIdsBySlot.get(slotId)
+                        );
                 rebuiltAll = rebuiltAll && rebuilt;
             }
 
@@ -93,16 +120,16 @@ public class RedisSeatOccupancyBitmapRebuildService {
             List<Long> slotIds,
             List<ReservationSlotOccupancy> occupancies) {
 
-        Map<Long, Set<Long>> result = new LinkedHashMap<>();
+        Map<Long, Set<Long>> result =
+                new LinkedHashMap<>();
 
         for (Long slotId : slotIds) {
             result.put(slotId, new LinkedHashSet<>());
         }
 
         for (ReservationSlotOccupancy occupancy : occupancies) {
-            Set<Long> occupiedSeatIds = result.get(
-                    occupancy.getSlotId()
-            );
+            Set<Long> occupiedSeatIds =
+                    result.get(occupancy.getSlotId());
             if (occupiedSeatIds != null) {
                 occupiedSeatIds.add(occupancy.getSeatId());
             }

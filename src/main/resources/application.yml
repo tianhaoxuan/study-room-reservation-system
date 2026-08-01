@@ -23,6 +23,7 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
       timeout: 2s
   sql:
     init:
@@ -60,3 +61,8 @@ studyroom:
       enabled: ${STUDYROOM_REDIS_SEAT_OCCUPANCY_ENABLED:true}
       key-prefix: ${STUDYROOM_REDIS_SEAT_OCCUPANCY_KEY_PREFIX:seat:bitmap}
       ttl-days: ${STUDYROOM_REDIS_SEAT_OCCUPANCY_TTL_DAYS:45}
+      rebuild-lock:
+        enabled: ${STUDYROOM_REDIS_SEAT_OCCUPANCY_REBUILD_LOCK_ENABLED:true}
+        key-prefix: ${STUDYROOM_REDIS_SEAT_OCCUPANCY_REBUILD_LOCK_KEY_PREFIX:lock:seat:bitmap:rebuild}
+        wait-time: ${STUDYROOM_REDIS_SEAT_OCCUPANCY_REBUILD_LOCK_WAIT_TIME:100ms}
+        lease-time: ${STUDYROOM_REDIS_SEAT_OCCUPANCY_REBUILD_LOCK_LEASE_TIME:10s}

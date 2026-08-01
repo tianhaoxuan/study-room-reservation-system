@@ -2,6 +2,7 @@ package com.smartstudy.studyroom;
 
 import com.smartstudy.studyroom.entity.ReservationSlotOccupancy;
 import com.smartstudy.studyroom.mapper.ReservationSlotOccupancyMapper;
+import com.smartstudy.studyroom.redis.RedisSeatOccupancyBitmapRebuildLockService;
 import com.smartstudy.studyroom.redis.RedisSeatOccupancyBitmapRebuildService;
 import com.smartstudy.studyroom.redis.SeatOccupancyBitmapService;
 import org.junit.jupiter.api.Test;
@@ -10,10 +11,14 @@ import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class RedisSeatOccupancyBitmapRebuildServiceTest {
@@ -24,16 +29,30 @@ class RedisSeatOccupancyBitmapRebuildServiceTest {
                 mock(ReservationSlotOccupancyMapper.class);
         SeatOccupancyBitmapService bitmapService =
                 mock(SeatOccupancyBitmapService.class);
+        RedisSeatOccupancyBitmapRebuildLockService lockService =
+                mock(RedisSeatOccupancyBitmapRebuildLockService.class);
         RedisSeatOccupancyBitmapRebuildService rebuildService =
                 new RedisSeatOccupancyBitmapRebuildService(
                         occupancyMapper,
-                        bitmapService
+                        bitmapService,
+                        lockService
                 );
 
         LocalDate reservationDate =
                 LocalDate.of(2026, 8, 1);
         List<Long> slotIds =
                 List.of(2L, 3L, 4L);
+
+        when(lockService.runWithLock(
+                any(),
+                any(),
+                any(),
+                any()
+        )).thenAnswer(invocation -> {
+            Supplier<Boolean> action =
+                    invocation.getArgument(3);
+            return action.get();
+        });
 
         when(occupancyMapper.findByRoomDateAndSlotIds(
                 1L,
@@ -73,6 +92,12 @@ class RedisSeatOccupancyBitmapRebuildServiceTest {
 
         assertThat(rebuilt).isTrue();
 
+        verify(lockService).runWithLock(
+                any(),
+                any(),
+                any(),
+                any()
+        );
         verify(bitmapService).rebuildSlot(
                 1L,
                 reservationDate,
@@ -99,16 +124,30 @@ class RedisSeatOccupancyBitmapRebuildServiceTest {
                 mock(ReservationSlotOccupancyMapper.class);
         SeatOccupancyBitmapService bitmapService =
                 mock(SeatOccupancyBitmapService.class);
+        RedisSeatOccupancyBitmapRebuildLockService lockService =
+                mock(RedisSeatOccupancyBitmapRebuildLockService.class);
         RedisSeatOccupancyBitmapRebuildService rebuildService =
                 new RedisSeatOccupancyBitmapRebuildService(
                         occupancyMapper,
-                        bitmapService
+                        bitmapService,
+                        lockService
                 );
 
         LocalDate reservationDate =
                 LocalDate.of(2026, 8, 1);
         List<Long> slotIds =
                 List.of(2L, 3L);
+
+        when(lockService.runWithLock(
+                any(),
+                any(),
+                any(),
+                any()
+        )).thenAnswer(invocation -> {
+            Supplier<Boolean> action =
+                    invocation.getArgument(3);
+            return action.get();
+        });
 
         when(occupancyMapper.findByRoomDateAndSlotIds(
                 1L,
@@ -142,15 +181,56 @@ class RedisSeatOccupancyBitmapRebuildServiceTest {
     }
 
     @Test
+    void shouldReturnFalseWhenRebuildLockIsNotAcquired() {
+        ReservationSlotOccupancyMapper occupancyMapper =
+                mock(ReservationSlotOccupancyMapper.class);
+        SeatOccupancyBitmapService bitmapService =
+                mock(SeatOccupancyBitmapService.class);
+        RedisSeatOccupancyBitmapRebuildLockService lockService =
+                mock(RedisSeatOccupancyBitmapRebuildLockService.class);
+        RedisSeatOccupancyBitmapRebuildService rebuildService =
+                new RedisSeatOccupancyBitmapRebuildService(
+                        occupancyMapper,
+                        bitmapService,
+                        lockService
+                );
+
+        LocalDate reservationDate =
+                LocalDate.of(2026, 8, 1);
+        List<Long> slotIds =
+                List.of(2L, 3L);
+
+        when(lockService.runWithLock(
+                eq(1L),
+                eq(reservationDate),
+                eq(slotIds),
+                any()
+        )).thenReturn(false);
+
+        boolean rebuilt =
+                rebuildService.rebuild(
+                        1L,
+                        reservationDate,
+                        slotIds
+                );
+
+        assertThat(rebuilt).isFalse();
+        verifyNoInteractions(occupancyMapper, bitmapService);
+    }
+
+    @Test
     void shouldReturnFalseWhenInputIsInvalid() {
         ReservationSlotOccupancyMapper occupancyMapper =
                 mock(ReservationSlotOccupancyMapper.class);
         SeatOccupancyBitmapService bitmapService =
                 mock(SeatOccupancyBitmapService.class);
+        RedisSeatOccupancyBitmapRebuildLockService lockService =
+                mock(RedisSeatOccupancyBitmapRebuildLockService.class);
         RedisSeatOccupancyBitmapRebuildService rebuildService =
                 new RedisSeatOccupancyBitmapRebuildService(
                         occupancyMapper,
-                        bitmapService
+                        bitmapService,
+                        lockService
                 );
 
         boolean rebuilt =
@@ -161,6 +241,7 @@ class RedisSeatOccupancyBitmapRebuildServiceTest {
                 );
 
         assertThat(rebuilt).isFalse();
+        verifyNoInteractions(lockService);
     }
 
     private static ReservationSlotOccupancy occupancy(
