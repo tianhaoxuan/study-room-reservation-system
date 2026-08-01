@@ -39,6 +39,17 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
+springdoc:
+  server-url: ${STUDYROOM_OPENAPI_SERVER_URL:http://localhost:8080}
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
 management:
   endpoints:
     web:
@@ -51,6 +62,12 @@ management:
   metrics:
     tags:
       application: study-room-reservation
+
+info:
+  app:
+    name: study-room-reservation
+    description: Smart study room reservation and fulfillment governance backend
+    version: 1.0.0
 
 logging:
   level:
