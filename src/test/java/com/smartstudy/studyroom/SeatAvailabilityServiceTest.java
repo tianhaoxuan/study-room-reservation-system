@@ -10,6 +10,7 @@ import com.smartstudy.studyroom.exception.BusinessException;
 import com.smartstudy.studyroom.mapper.SeatAvailabilityMapper;
 import com.smartstudy.studyroom.mapper.SeatMapper;
 import com.smartstudy.studyroom.mapper.StudyRoomMapper;
+import com.smartstudy.studyroom.redis.RedisSeatOccupancyBitmapRebuildService;
 import com.smartstudy.studyroom.redis.SeatOccupancyBitmapService;
 import com.smartstudy.studyroom.service.ReservationSlotService;
 import com.smartstudy.studyroom.service.SeatAvailabilityService;
@@ -37,6 +38,7 @@ class SeatAvailabilityServiceTest {
     private SeatAvailabilityMapper seatAvailabilityMapper;
     private ReservationSlotService reservationSlotService;
     private SeatOccupancyBitmapService bitmapService;
+    private RedisSeatOccupancyBitmapRebuildService bitmapRebuildService;
     private SeatAvailabilityService seatAvailabilityService;
 
     @BeforeEach
@@ -48,6 +50,8 @@ class SeatAvailabilityServiceTest {
         reservationSlotService =
                 mock(ReservationSlotService.class);
         bitmapService = mock(SeatOccupancyBitmapService.class);
+        bitmapRebuildService =
+                mock(RedisSeatOccupancyBitmapRebuildService.class);
 
         seatAvailabilityService = new SeatAvailabilityService(
                 seatMapper,
@@ -55,6 +59,7 @@ class SeatAvailabilityServiceTest {
                 seatAvailabilityMapper,
                 reservationSlotService,
                 bitmapService,
+                bitmapRebuildService,
                 true
         );
     }
@@ -125,6 +130,9 @@ class SeatAvailabilityServiceTest {
         assertThat(result.get(2).status())
                 .isEqualTo(BizConstants.SEAT_STATUS_REPAIR);
 
+        verify(bitmapRebuildService, never())
+                .rebuild(1L, reservationDate, List.of(2L, 3L, 4L, 5L));
+
         verify(seatAvailabilityMapper, never())
                 .findActiveReservationsBySlotIds(
                         1L,
@@ -134,7 +142,88 @@ class SeatAvailabilityServiceTest {
     }
 
     @Test
-    void fallsBackToMysqlWhenRedisProjectionMissing() {
+    void rebuildsRedisProjectionAndUsesRedisWhenProjectionMissing() {
+        LocalDate reservationDate =
+                LocalDate.now().plusDays(1);
+
+        StudyRoom room = enabledRoom(1L);
+
+        ReservationSlotRange slotRange =
+                new ReservationSlotRange(
+                        List.of(2L, 3L, 4L, 5L),
+                        LocalTime.of(8, 0),
+                        LocalTime.of(10, 0),
+                        "08:00-10:00"
+                );
+
+        Seat seat1 = seat(
+                1L,
+                BizConstants.SEAT_STATUS_FREE
+        );
+        Seat seat2 = seat(
+                2L,
+                BizConstants.SEAT_STATUS_FREE
+        );
+
+        when(studyRoomMapper.findById(1L))
+                .thenReturn(room);
+
+        when(reservationSlotService.resolveSelectableRange(
+                room,
+                2L,
+                5L
+        )).thenReturn(slotRange);
+
+        when(seatMapper.findByRoomId(1L))
+                .thenReturn(List.of(seat1, seat2));
+
+        when(bitmapService.findOccupiedSeatIds(
+                1L,
+                reservationDate,
+                List.of(2L, 3L, 4L, 5L),
+                List.of(1L, 2L)
+        )).thenReturn(
+                Optional.empty(),
+                Optional.of(Set.of(1L))
+        );
+
+        when(bitmapRebuildService.rebuild(
+                1L,
+                reservationDate,
+                List.of(2L, 3L, 4L, 5L)
+        )).thenReturn(true);
+
+        List<SeatAvailabilityResponse> result =
+                seatAvailabilityService.findAvailableSeats(
+                        1L,
+                        reservationDate,
+                        2L,
+                        5L
+                );
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).status())
+                .isEqualTo(BizConstants.SEAT_STATUS_RESERVED);
+        assertThat(result.get(1).status())
+                .isEqualTo(BizConstants.SEAT_STATUS_FREE);
+
+        verify(bitmapRebuildService)
+                .rebuild(
+                        1L,
+                        reservationDate,
+                        List.of(2L, 3L, 4L, 5L)
+                );
+
+        verify(seatAvailabilityMapper, never())
+                .findActiveReservationsBySlotIds(
+                        1L,
+                        reservationDate,
+                        List.of(2L, 3L, 4L, 5L)
+                );
+    }
+
+    @Test
+    void fallsBackToMysqlWhenRedisProjectionRebuildFails() {
         LocalDate reservationDate =
                 LocalDate.now().plusDays(1);
 
@@ -188,6 +277,12 @@ class SeatAvailabilityServiceTest {
                 List.of(2L, 3L, 4L, 5L),
                 List.of(1L, 2L, 3L)
         )).thenReturn(Optional.empty());
+
+        when(bitmapRebuildService.rebuild(
+                1L,
+                reservationDate,
+                List.of(2L, 3L, 4L, 5L)
+        )).thenReturn(false);
 
         when(seatAvailabilityMapper.findActiveReservationsBySlotIds(
                 1L,
@@ -246,6 +341,7 @@ class SeatAvailabilityServiceTest {
                 seatAvailabilityMapper,
                 reservationSlotService,
                 bitmapService,
+                bitmapRebuildService,
                 false
         );
 
@@ -285,6 +381,7 @@ class SeatAvailabilityServiceTest {
                 .isEqualTo(BizConstants.SEAT_STATUS_FREE);
 
         verifyNoInteractions(bitmapService);
+        verifyNoInteractions(bitmapRebuildService);
     }
 
     @Test
@@ -308,7 +405,8 @@ class SeatAvailabilityServiceTest {
                 studyRoomMapper,
                 seatAvailabilityMapper,
                 reservationSlotService,
-                bitmapService
+                bitmapService,
+                bitmapRebuildService
         );
     }
 

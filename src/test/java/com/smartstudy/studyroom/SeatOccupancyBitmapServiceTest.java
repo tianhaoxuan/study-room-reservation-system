@@ -90,6 +90,56 @@ class SeatOccupancyBitmapServiceTest {
     }
 
     @Test
+    void shouldRebuildSlotBitmapAndCreateKeyWhenSlotHasNoOccupiedSeats() {
+        StringRedisTemplate redisTemplate =
+                mock(StringRedisTemplate.class);
+        ValueOperations<String, String> valueOperations =
+                mock(ValueOperations.class);
+
+        when(redisTemplate.opsForValue())
+                .thenReturn(valueOperations);
+
+        SeatOccupancyBitmapService service =
+                new SeatOccupancyBitmapService(
+                        redisTemplate,
+                        new SeatOccupancyBitmapKey("seat:bitmap"),
+                        45
+                );
+
+        boolean rebuilt = service.rebuildSlot(
+                1L,
+                LocalDate.of(2026, 8, 1),
+                2L,
+                List.of(1001L, 1002L)
+        );
+
+        assertThat(rebuilt).isTrue();
+
+        verify(redisTemplate).delete(
+                "seat:bitmap:1:2026-08-01:2"
+        );
+        verify(valueOperations).setBit(
+                "seat:bitmap:1:2026-08-01:2",
+                0L,
+                false
+        );
+        verify(valueOperations).setBit(
+                "seat:bitmap:1:2026-08-01:2",
+                1001L,
+                true
+        );
+        verify(valueOperations).setBit(
+                "seat:bitmap:1:2026-08-01:2",
+                1002L,
+                true
+        );
+        verify(redisTemplate).expire(
+                "seat:bitmap:1:2026-08-01:2",
+                Duration.ofDays(45)
+        );
+    }
+
+    @Test
     void shouldFindSeatsOccupiedInAnySelectedSlot() {
         StringRedisTemplate redisTemplate =
                 mock(StringRedisTemplate.class);
