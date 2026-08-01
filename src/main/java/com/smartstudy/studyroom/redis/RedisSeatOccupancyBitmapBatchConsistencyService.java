@@ -20,15 +20,18 @@ public class RedisSeatOccupancyBitmapBatchConsistencyService {
     private final StudyRoomMapper studyRoomMapper;
     private final ReservationSlotMapper reservationSlotMapper;
     private final RedisSeatOccupancyBitmapConsistencyService consistencyService;
+    private final RedisSeatOccupancyBitmapConsistencyMetrics metrics;
 
     public RedisSeatOccupancyBitmapBatchConsistencyService(
             StudyRoomMapper studyRoomMapper,
             ReservationSlotMapper reservationSlotMapper,
-            RedisSeatOccupancyBitmapConsistencyService consistencyService) {
+            RedisSeatOccupancyBitmapConsistencyService consistencyService,
+            RedisSeatOccupancyBitmapConsistencyMetrics metrics) {
 
         this.studyRoomMapper = studyRoomMapper;
         this.reservationSlotMapper = reservationSlotMapper;
         this.consistencyService = consistencyService;
+        this.metrics = metrics;
     }
 
     public BatchReconcileResult reconcileFrom(
@@ -37,7 +40,9 @@ public class RedisSeatOccupancyBitmapBatchConsistencyService {
             int roomLimit) {
 
         if (startDate == null) {
-            return BatchReconcileResult.empty("invalid start date");
+            return recordAndReturn(
+                    BatchReconcileResult.empty("invalid start date")
+            );
         }
 
         int normalizedDateWindowDays =
@@ -48,10 +53,14 @@ public class RedisSeatOccupancyBitmapBatchConsistencyService {
         List<Long> slotIds = reservationSlotMapper.findEnabledSlotIds();
 
         if (roomIds == null || roomIds.isEmpty()) {
-            return BatchReconcileResult.empty("no active rooms");
+            return recordAndReturn(
+                    BatchReconcileResult.empty("no active rooms")
+            );
         }
         if (slotIds == null || slotIds.isEmpty()) {
-            return BatchReconcileResult.empty("no enabled slots");
+            return recordAndReturn(
+                    BatchReconcileResult.empty("no enabled slots")
+            );
         }
 
         List<Long> limitedRoomIds = roomIds.stream()
@@ -107,16 +116,25 @@ public class RedisSeatOccupancyBitmapBatchConsistencyService {
             }
         }
 
-        return new BatchReconcileResult(
-                limitedRoomIds.size(),
-                normalizedDateWindowDays,
-                checked,
-                consistent,
-                rebuilt,
-                skipped,
-                failed,
-                "completed"
+        return recordAndReturn(
+                new BatchReconcileResult(
+                        limitedRoomIds.size(),
+                        normalizedDateWindowDays,
+                        checked,
+                        consistent,
+                        rebuilt,
+                        skipped,
+                        failed,
+                        "completed"
+                )
         );
+    }
+
+    private BatchReconcileResult recordAndReturn(
+            BatchReconcileResult result) {
+
+        metrics.recordBatch(result);
+        return result;
     }
 
     private int normalizeDateWindowDays(int dateWindowDays) {
